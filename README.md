@@ -6,15 +6,13 @@
 - 实时预警：对自伤/暴力等敏感内容进行危机信号检测，SSE 实时推送到后台页面
 - 管理后台：儿童档案、会话管理、知识库上传/重建
 
-> 重要说明：早期 CSV 语料库功能已移除，知识库仅来源于后台上传（如 PDF）或在线检索。
-
 ---
 
 ## 目录结构
 
 ```
 .
-├─ code/                  # 新版正式代码（主包）
+├─ code/                  # 正式代码（主包）
 │  ├─ api_app.py          # FastAPI 应用（入口 app）
 │  ├─ dialogue_manager_ollama.py  # 对话编排与安全策略
 │  ├─ rag_module.py       # RAG：在线检索 + 本地向量库
@@ -22,12 +20,10 @@
 │  ├─ alert_bus.py        # 进程内 pub/sub，用于 SSE 推送
 │  ├─ auth.py             # 管理端认证中间件与依赖
 │  ├─ migrate_add_conversations.py # 历史迁移脚本
-│  ├─ seed_sfbt_data.py   # 示例种子（可选）
 │  └─ __init__.py
 ├─ templates/             # Jinja2 模板（页面）
 ├─ static/                # 静态资源（CSS 等）
 ├─ uploads/knowledge/     # 后台上传的知识文件（PDF 等）
-├─ legacy_src/            # 旧版源代码归档（只读备份，不参与运行）
 ├─ run.py                 # 便捷启动脚本（推荐）
 ├─ requirements.txt       # 依赖
 └─ sfbt_ollama.db         # SQLite 数据库（首次运行自动生成）
@@ -195,4 +191,3 @@ $env:ENABLE_WEB_RETRIEVAL_DEFAULT = "1"
 
 - 入口：`uvicorn code.api_app:app --reload` 或 `python run.py`
 - 模板/静态资源路径：`code/api_app.py` 使用项目根目录的 `templates/` 与 `static/`
-- 旧源码备份在 `legacy_src/`，请勿直接修改，改动都应在 `code/` 中进行
