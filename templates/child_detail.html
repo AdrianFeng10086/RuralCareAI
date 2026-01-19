@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>儿童 - {{ child.name }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- 用一个容器元素通过 data- 属性安全传递变量到前端 JS（避免在脚本中直接写 Jinja 表达式引起静态检查/语法器误报） -->
+  <div id="page" data-child-id="{{ child.id }}" data-child-name="{{ child.name|e }}" data-interactions='{{ interactions|tojson | safe }}' style="display:none"></div>
+  <h1>{{ child.name }} 的档案</h1>
+  <p>年龄：{{ child.age or '未知' }}，监护人：{{ child.guardian or '无' }}，联系电话：{{ child.guardian_phone or '未填写' }}</p>
+  <p>
+    <a href="/children">返回儿童列表</a>
+    | <a href="/children/{{ child.id }}/edit">编辑儿童信息</a>
+  </p>
+
+  <!-- 管理端已移除新建会话和对话功能，仅保留历史查看 -->
+
+  <h2>会话历史</h2>
+  <ul id="history_list">
+    <!-- 会话历史由 JS 填充 -->
+  </ul>
+  <div id="fetch_error" style="color:crimson;margin-top:8px;display:none"></div>
+  
+  <script>
+  // 从页面 data-* 属性安全读取 child 信息
+  const _page = document.getElementById('page');
+  const childId = Number(_page.dataset.childId || 0);
+  const childName = _page.dataset.childName || '';
+  // 管理端无需 loading 提示与对话发送
+
+    const serverInteractions = (function() {
+      try {
+        return _page.dataset.interactions ? JSON.parse(_page.dataset.interactions) : [];
+      } catch (err) {
+        console.warn('Failed to parse server interactions', err);
+        return [];
+      }
+    })();
+
+    // 管理端不再显示会话列表
+
+    async function fetchChildHistory() {
+      try {
+        const res = await fetch(`/api/child/${childId}/history`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const hist = document.getElementById('history_list');
+        hist.innerHTML = '';
+        // 按 conversation_id 分组显示，避免把不同会话混在一起
+        const groups = {};
+        data.history.forEach(it => {
+          const key = it.conversation_id || 'nogroup';
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(it);
+        });
+        hist.innerHTML = '';
+        // 按会话时间顺序展示：先展示有会话 id 的分组，再展示未分组的历史
+        const convKeys = Object.keys(groups).filter(k => k !== 'nogroup');
+        convKeys.sort((a,b)=>{ // 尝试按第一个条目的时间排序
+          const ta = new Date(groups[a][0].timestamp || 0).getTime();
+          const tb = new Date(groups[b][0].timestamp || 0).getTime();
+          return ta - tb;
+        });
+        convKeys.forEach(k => {
+          const header = document.createElement('li');
+          header.innerHTML = `<div style="margin-top:8px;padding:6px;background:#eef;border-left:3px solid #99c;"><strong>会话 ${k}</strong></div>`;
+          hist.appendChild(header);
+          groups[k].forEach(it => {
+            const li = document.createElement('li');
+            li.innerHTML = `<strong>${it.timestamp || ''}</strong><br>孩子: ${escapeHtml(it.user_input || '')}<br>咨询师: ${escapeHtml(it.bot_response || '')}`;
+            hist.appendChild(li);
+          });
+        });
+        if (groups['nogroup']) {
+          const header = document.createElement('li');
+          header.innerHTML = `<div style="margin-top:8px;padding:6px;background:#f7f7f7;border-left:3px solid #ccc;"><strong>未分会话的历史</strong></div>`;
+          hist.appendChild(header);
+          groups['nogroup'].forEach(it => {
+            const li = document.createElement('li');
+            li.innerHTML = `<strong>${it.timestamp || ''}</strong><br>孩子: ${escapeHtml(it.user_input || '')}<br>咨询师: ${escapeHtml(it.bot_response || '')}`;
+            hist.appendChild(li);
+          });
+        }
+  // 标注为历史记录视图（移除对会话输入的依赖）
+        document.getElementById('fetch_error').style.display = 'none';
+      } catch (err) {
+        console.warn('fetchChildHistory failed', err);
+        renderServerInteractions();
+        const el = document.getElementById('fetch_error');
+        el.textContent = '无法获取历史记录，已显示本地缓存的历史。';
+        el.style.display = '';
+      }
+    }
+
+    function renderServerInteractions() {
+      const hist = document.getElementById('history_list');
+      hist.innerHTML = '';
+      serverInteractions.forEach(it => {
+        const li = document.createElement('li');
+        li.innerHTML = `<strong>${it.timestamp || ''}</strong><br>孩子: ${escapeHtml(it.user_input || '')}<br>咨询师: ${escapeHtml(it.bot_response || '')}`;
+        hist.appendChild(li);
+      });
+      // 无需设置当前会话
+    }
+    // 已移除选择/创建会话与对话发送能力
+
+    function escapeHtml(unsafe) {
+      return unsafe
+           .replace(/&/g, "&amp;")
+           .replace(/</g, "&lt;")
+           .replace(/>/g, "&gt;")
+           .replace(/\"/g, "&quot;")
+           .replace(/'/g, "&#039;");
+    }
+
+    // 初始化：直接拉取该儿童的历史
+    fetchChildHistory().catch(() => { renderServerInteractions(); });
+  </script>
+
+  <!-- 交互历史由上方会话历史区域显示 -->
+</body>
+</html>

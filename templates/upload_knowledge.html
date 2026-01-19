@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>上传知识（PDF）</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <h1>上传 SFBT 知识文档（PDF）</h1>
+  <form action="/admin/upload_knowledge" enctype="multipart/form-data" method="post">
+    <div class="form-group">
+      <label for="title">标题（可选）</label>
+      <input name="title" id="title" type="text" placeholder="例如：SFBT 介绍" />
+    </div>
+    <div class="form-group">
+      <label class="required" for="file">选择 PDF 文件</label>
+      <input type="file" id="file" name="file" accept="application/pdf" required />
+      <span class="input-hint">仅支持 PDF，上传即会触发向量库重建。</span>
+    </div>
+    <button type="submit">上传并加入知识库</button>
+  </form>
+  <p><a href="/admin/knowledge">返回知识列表</a> | <a href="/admin">后台首页</a></p>
+</body>
+</html>

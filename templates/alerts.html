@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>心理预警</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .badge {display:inline-block;padding:2px 6px;border-radius:10px;font-size:12px;background:#eee;margin-left:6px}
+    .badge.red {background:#fbe9e9;color:#b00020}
+    .row {padding:8px 6px;border-bottom:1px solid #eee}
+    .row.reviewed {opacity:0.7}
+    .flags {font-size:12px;color:#555}
+  </style>
+</head>
+<body>
+  <h1>心理预警</h1>
+  <form id="search_form" class="alert-search-form">
+    <div class="form-group">
+      <label for="q">搜索</label>
+      <input type="text" id="q" name="q" placeholder="按儿童姓名或摘要搜索" />
+      <span class="input-hint">留空显示全部预警。</span>
+    </div>
+    <button type="submit">搜索</button>
+    <button type="button" id="btn_clear" style="margin-left:8px;">清除</button>
+    <a href="/admin" style="margin-left:12px;">返回后台首页</a>
+  </form>
+  <div id="alerts_container">
+    <p>加载中...</p>
+  </div>
+  <script>
+  // 建立 SSE 实时连接，收到新预警时插入顶部
+  (function(){
+    async function loadAlerts(query) {
+      try {
+        const params = query ? ('?q=' + encodeURIComponent(query)) : '';
+        const res = await fetch('/api/admin/alerts' + params);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const container = document.getElementById('alerts_container');
+        container.innerHTML = '';
+        if (!data.alerts || !data.alerts.length) {
+          container.innerHTML = '<p>暂无预警。</p>';
+          return;
+        }
+        data.alerts.forEach(a => {
+          container.appendChild(renderAlertRow(a));
+        });
+      } catch (err) {
+        console.error('加载预警失败', err);
+        const container = document.getElementById('alerts_container');
+        container.innerHTML = '<p>加载失败，请稍后重试。</p>';
+      }
+    }
+
+    function renderFlagsText(flags) {
+      if (!flags) return '';
+      const parts = [];
+      if (flags.suicide) parts.push('自杀/轻生');
+      if (flags.self_harm) parts.push('自伤');
+      if (flags.abuse) parts.push('家暴/受虐');
+      if (flags.violence) parts.push('暴力/伤害他人');
+      return parts.length ? ' | 标记: ' + parts.join(' ') : '';
+    }
+
+    function renderAlertRow(a) {
+      const div = document.createElement('div');
+      div.className = 'row' + (a.reviewed ? ' reviewed' : '');
+      const statusClass = a.reviewed ? '' : ' red';
+      const statusText = a.reviewed ? '已处理' : '未处理';
+
+      const header = document.createElement('div');
+      header.innerHTML = `<strong>儿童:</strong> ${a.child_name || '未知'}<span class="badge${statusClass}">${statusText}</span>`;
+      div.appendChild(header);
+
+      const flagsDiv = document.createElement('div');
+      flagsDiv.className = 'flags';
+      flagsDiv.innerHTML = `<strong>预警：</strong> ${a.summary || '检测到潜在危机信号'}${renderFlagsText(a.flags)}`;
+      div.appendChild(flagsDiv);
+
+      const timeDiv = document.createElement('div');
+      timeDiv.textContent = '时间：' + (a.created_at || '');
+      div.appendChild(timeDiv);
+
+      if (!a.reviewed) {
+        const form = document.createElement('form');
+        form.style.marginTop = '6px';
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          try {
+            const fd = new FormData();
+            fd.append('alert_id', a.id);
+            const res = await fetch('/admin/alerts/review', { method: 'POST', body: fd });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            loadAlerts(document.getElementById('q').value.trim());
+          } catch (err) {
+            alert('标记失败：' + (err.message || err));
+          }
+        });
+        const btn = document.createElement('button');
+        btn.type = 'submit';
+        btn.textContent = '标记为已处理';
+        form.appendChild(btn);
+        div.appendChild(form);
+      } else if (a.reviewed_at) {
+        const rtime = document.createElement('div');
+        rtime.textContent = '处理时间：' + a.reviewed_at;
+        div.appendChild(rtime);
+      }
+
+      return div;
+    }
+
+    try {
+      const es = new EventSource('/admin/alerts/stream');
+      es.addEventListener('alert', function(ev){
+        try {
+          const data = JSON.parse(ev.data);
+          const container = document.getElementById('alerts_container');
+          if (!container) return;
+          const row = renderAlertRow(data);
+          container.prepend(row);
+        } catch(e){ console.warn('解析实时预警失败', e); }
+      });
+      es.addEventListener('ping', function(){ /* 心跳忽略即可 */ });
+      es.onerror = function(){ console.warn('实时预警连接异常，浏览器将自动重试'); };
+    } catch(err){ console.warn('无法建立实时预警连接', err); }
+
+    document.getElementById('search_form').addEventListener('submit', function(e){
+      e.preventDefault();
+      const q = document.getElementById('q').value.trim();
+      loadAlerts(q);
+    });
+
+    document.getElementById('btn_clear').addEventListener('click', function(){
+      const qInput = document.getElementById('q');
+      qInput.value = '';
+      loadAlerts('');
+    });
+
+    loadAlerts('');
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+sentence-transformers
+langchain
+langchain-community
+langchain-huggingface
+faiss-cpu
+ollama
+requests
+beautifulsoup4
+trafilatura
+python-dotenv
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+PyPDF2

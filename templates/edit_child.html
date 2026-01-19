@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>编辑儿童 - {{ child.name }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <h1>编辑儿童信息</h1>
+  <p><a href="/children">返回儿童列表</a> | <a href="/children/{{ child.id }}">查看档案</a></p>
+
+  <form action="/children/{{ child.id }}/update" method="post" style="max-width:520px;">
+    <div class="form-group">
+      <label class="required" for="name">姓名</label>
+      <input id="name" type="text" name="name" value="{{ child.name }}" required>
+    </div>
+    <div class="form-group">
+      <label for="account">登录账号</label>
+      <input id="account" type="text" name="account" value="{{ child.account or '' }}" placeholder="例如 child001">
+      <small>用于儿童端登录。账号可选，如不填则沿用现有登录方式。</small>
+    </div>
+    <div class="form-group">
+      <label for="password">登录密码</label>
+      <input id="password" type="password" name="password" placeholder="留空表示不修改">
+      <small>如需修改儿童端登录密码，在此输入新密码。</small>
+    </div>
+    <div class="form-group">
+      <label for="age">年龄</label>
+      <input id="age" type="number" name="age" value="{{ child.age if child.age is not none else '' }}" min="0">
+    </div>
+    <div class="form-group">
+      <label for="guardian">监护人</label>
+      <input id="guardian" type="text" name="guardian" value="{{ child.guardian or '' }}">
+    </div>
+    <div class="form-group">
+      <label for="guardian_phone">监护人电话</label>
+      <input id="guardian_phone" type="text" name="guardian_phone" value="{{ child.guardian_phone or '' }}" placeholder="例如 13800000000">
+    </div>
+    <div class="form-group">
+      <label for="stage">当前阶段</label>
+      <input id="stage" type="text" name="stage" value="{{ child.stage or '' }}">
+    </div>
+    <div class="form-group">
+      <label for="case_notes">个案备注</label>
+      <textarea id="case_notes" name="case_notes" rows="4" style="width:100%;">{{ child.case_notes or '' }}</textarea>
+    </div>
+    <button type="submit">保存</button>
+    <a href="/children" style="margin-left:12px;">取消</a>
+  </form>
+</body>
+</html>

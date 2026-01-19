@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SFBT 管理后台</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <h1>SFBT 管理后台</h1>
+  <p id="stats">儿童数量：加载中... &nbsp; 知识：加载中...</p>
+  <p>
+    <a href="/children">管理儿童</a> |
+  <a href="/admin/alerts">心理预警<span id="pending_alerts"></span></a> |
+    <a href="/admin/upload_knowledge">上传知识 (PDF)</a> |
+    <a href="/admin/logout?next=/">返回用户端（并退出后台）</a> |
+    <a href="/admin/logout">退出登录</a>
+  </p>
+  <h2>儿童一览</h2>
+  <ul id="children_list">
+    <li>加载中...</li>
+  </ul>
+
+  <script>
+    async function loadDashboard() {
+      try {
+        const res = await fetch('/api/admin/dashboard');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+
+        const statsEl = document.getElementById('stats');
+        if (statsEl) {
+          statsEl.textContent = `儿童数量：${data.children.length}  知识：${data.knowledge_count}`;
+        }
+
+        const pendingEl = document.getElementById('pending_alerts');
+        if (pendingEl) {
+          const n = data.pending_alerts || 0;
+          pendingEl.innerHTML = n > 0 ? `<strong style='color:red'>(未处理 ${n})</strong>` : '';
+        }
+
+        const listEl = document.getElementById('children_list');
+        listEl.innerHTML = '';
+        if (!data.children.length) {
+          listEl.innerHTML = '<li>暂无儿童数据</li>';
+          return;
+        }
+        data.children.forEach(c => {
+          const li = document.createElement('li');
+          const ageText = (c.age === null || c.age === undefined) ? '未知' : c.age;
+          const guardianText = c.guardian && c.guardian.trim() ? c.guardian : '未填写';
+          const phoneText = c.guardian_phone && c.guardian_phone.trim() ? c.guardian_phone : '未填写';
+          li.innerHTML = `<a href="/children/${c.id}">${c.name}</a> （年龄: ${ageText}，阶段: ${c.stage || ''}，监护人: ${guardianText}，电话: ${phoneText}）`;
+          listEl.appendChild(li);
+        });
+      } catch (err) {
+        console.error('加载 dashboard 失败', err);
+        const listEl = document.getElementById('children_list');
+        listEl.innerHTML = '<li>加载失败，请稍后重试。</li>';
+        const pendingEl = document.getElementById('pending_alerts');
+        if (pendingEl) pendingEl.textContent = '';
+      }
+    }
+
+    loadDashboard();
+
+    // 每秒轮询未处理预警数量，使用轻量接口
+    async function pollPendingAlerts(){
+      try {
+        const res = await fetch('/api/admin/pending-alerts');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const pendingEl = document.getElementById('pending_alerts');
+        if (pendingEl) {
+          const n = data.pending_alerts || 0;
+          pendingEl.innerHTML = n > 0 ? `<strong style='color:red'>(未处理 ${n})</strong>` : '';
+        }
+      } catch (err) {
+        console.warn('轮询 pending alerts 失败', err);
+      }
+    }
+
+    // 先立即拉一次，然后每秒轮询
+    pollPendingAlerts();
+    setInterval(pollPendingAlerts, 1000);
+  </script>
+</body>
+</html>

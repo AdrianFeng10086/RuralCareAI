@@ -1,0 +1,206 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>儿童聊天（用户端）</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    #chatbox { border:1px solid #ddd; padding:10px; height:400px; overflow:auto; background:#fff }
+    .msg.user { color: #0a58ca; }
+    .msg.bot { color: #2b8a3e; }
+  </style>
+</head>
+<body>
+  <h1>儿童对话（用户端）</h1>
+  <p>此页面面向已登录的儿童用户，用于与“小益”对话。</p>
+  <p style="font-size: 13px; color:#555;">当前账号：<strong>{{ name }}</strong> ｜ <a href="/user/logout">退出登录</a></p>
+
+  <div id="chatbox"></div>
+  <div id="status" class="status-line">
+    <span id="status_spinner" class="loading" style="display:none;"></span>
+    <span id="status_text">状态：空闲</span>
+  </div>
+
+  <form id="user_form">
+    <div class="form-group">
+      <label for="toggle_web" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="toggle_web" checked>
+        使用外部检索（Bing/百度，SERP-only）
+      </label>
+    </div>
+    <div class="form-group">
+      <label class="required" for="user_text">和咨询师对话</label>
+      <textarea id="user_text" rows="3" placeholder="输入内容后按发送..."></textarea>
+    </div>
+    <button id="btn_send" type="submit">发送</button>
+  </form>
+
+  <script>
+    let conversationId = null;
+    const chatbox = document.getElementById('chatbox');
+    const statusTextEl = document.getElementById('status_text');
+    const statusSpinnerEl = document.getElementById('status_spinner');
+
+    function setStatus(message, loading = false) {
+      if (statusTextEl) {
+        statusTextEl.textContent = '状态：' + message;
+      }
+      if (statusSpinnerEl) {
+        statusSpinnerEl.style.display = loading ? 'inline-block' : 'none';
+      }
+    }
+
+    setStatus('空闲', false);
+
+    function appendMessage(who, text) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + (who === 'user' ? 'user' : 'bot');
+      div.innerHTML = `<strong>${who === 'user' ? '你' : '咨询师'}:</strong> ${markdownToHtml(text)}`;
+      chatbox.appendChild(div);
+      chatbox.scrollTop = chatbox.scrollHeight;
+    }
+
+    function escapeHtml(unsafe) {
+      return unsafe
+           .replace(/&/g, "&amp;")
+           .replace(/</g, "&lt;")
+           .replace(/>/g, "&gt;")
+           .replace(/\"/g, "&quot;")
+           .replace(/'/g, "&#039;");
+    }
+
+    function markdownToHtml(md) {
+      if (!md) return '';
+      let s = escapeHtml(md);
+      s = s.replace(/`([^`]+?)`/g, '<code>$1</code>');
+      s = s.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+      const lines = s.split(/\r?\n/);
+      let out = [];
+      let inUl = false;
+      let inOl = false;
+      for (let line of lines) {
+        const trimmed = line.trim();
+        if (/^[-*]\s+/.test(trimmed)) {
+          if (!inUl) { out.push('<ul>'); inUl = true; }
+          out.push('<li>' + trimmed.replace(/^[-*]\s+/, '') + '</li>');
+        } else if (/^\d+\.\s+/.test(trimmed)) {
+          if (!inOl) { out.push('<ol>'); inOl = true; }
+          out.push('<li>' + trimmed.replace(/^\d+\.\s+/, '') + '</li>');
+        } else {
+          if (inUl) { out.push('</ul>'); inUl = false; }
+          if (inOl) { out.push('</ol>'); inOl = false; }
+          if (trimmed === '') { out.push('<br/>'); } else { out.push('<p>' + trimmed + '</p>'); }
+        }
+      }
+      if (inUl) out.push('</ul>');
+      if (inOl) out.push('</ol>');
+      return out.join('\n');
+    }
+
+    // 页面加载后自动创建一个会话，使用后端根据登录账号识别/创建儿童
+    window.addEventListener('load', async () => {
+      try {
+        const form = new FormData();
+        const res = await fetch('/api/conversations/create', { method: 'POST', body: form });
+        const data = await res.json();
+        if (data.conversation_id) {
+          conversationId = data.conversation_id;
+          chatbox.innerHTML = '';
+          if (data.intro) {
+            appendMessage('bot', data.intro);
+          }
+        } else {
+          setStatus('无法创建会话', false);
+        }
+      } catch (err) {
+        console.error('初始化会话失败', err);
+        setStatus('初始化会话失败', false);
+      }
+    });
+
+    document.getElementById('user_form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const text = document.getElementById('user_text').value.trim();
+      if (!text) return;
+      if (!conversationId) { alert('会话尚未准备好，请稍后再试'); return; }
+      appendMessage('user', text);
+      document.getElementById('user_text').value = '';
+
+      const form = new FormData();
+      form.append('user_input', text);
+      form.append('conversation_id', conversationId);
+      form.append('include_explanation', 'false');
+      const webToggle = document.getElementById('toggle_web');
+      if (webToggle) {
+        form.append('enable_web_retrieval', webToggle.checked ? 'true' : 'false');
+      }
+
+      setStatus('正在建立连接...', true);
+      try {
+        const res = await fetch('/api/chat/stream', { method: 'POST', body: form });
+        if (!res.ok) {
+          const txt = await res.text();
+          appendMessage('bot', '错误：' + txt);
+          setStatus('错误', false);
+          return;
+        }
+        setStatus('开始接收模型进度...', true);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buf = '';
+        let done = false;
+        while (!done) {
+          const { value, done: streamDone } = await reader.read();
+          done = streamDone;
+          if (value) {
+            buf += decoder.decode(value, { stream: true });
+            let parts = buf.split('\n\n');
+            buf = parts.pop();
+            for (let p of parts) {
+              const lines = p.split(/\r?\n/);
+              let ev = null;
+              let data = '';
+              for (let L of lines) {
+                if (L.startsWith('event:')) ev = L.replace('event:', '').trim();
+                if (L.startsWith('data:')) data += L.replace('data:', '').trim();
+              }
+              if (!ev) ev = 'message';
+              try {
+                const j = JSON.parse(data || '{}');
+                if (ev === 'progress') {
+                  setStatus(j.message || data || '处理中...', true);
+                } else if (ev === 'result') {
+                  const r = j;
+                  if (r.error) {
+                    appendMessage('bot', '错误：' + r.error);
+                  } else {
+                    appendMessage('bot', r.reply || r.answer || '(无回复)');
+                  }
+                  setStatus('已收到回复', false);
+                } else if (ev === 'error') {
+                  appendMessage('bot', '错误：' + (j.error || data));
+                  setStatus('错误', false);
+                } else if (ev === 'done') {
+                  setStatus('完成', false);
+                }
+              } catch (err) {
+                if (ev === 'progress') {
+                  setStatus(data || '处理中...', true);
+                }
+              }
+            }
+          }
+        }
+        if (buf && buf.trim()) {
+          setStatus(buf.trim(), false);
+        }
+      } catch (err) {
+        console.error('流式请求失败', err);
+        appendMessage('bot', '错误：' + (err.message || err));
+        setStatus('失败', false);
+      }
+    });
+  </script>
+</body>
+</html>

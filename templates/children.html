@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>儿童管理</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <h1>儿童管理</h1>
+  <p>
+    <a href="/admin">返回后台首页</a>
+    <a href="/children/new" style="margin-left:16px;">+ 新建儿童</a>
+  </p>
+
+  <h2>当前儿童</h2>
+  <ul id="children_list">
+    <li>加载中...</li>
+  </ul>
+
+  <script>
+    async function loadChildren() {
+      try {
+        const res = await fetch('/api/admin/children');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const listEl = document.getElementById('children_list');
+        listEl.innerHTML = '';
+        if (!data.children || !data.children.length) {
+          listEl.innerHTML = '<li>暂无儿童</li>';
+          return;
+        }
+        data.children.forEach(c => {
+          const li = document.createElement('li');
+          const ageText = (c.age === null || c.age === undefined) ? '未知' : c.age;
+          const nameLink = document.createElement('a');
+          nameLink.href = `/children/${c.id}`;
+          nameLink.textContent = c.name;
+          li.appendChild(nameLink);
+          const meta = document.createElement('small');
+          meta.className = 'meta';
+          meta.textContent = ` 年龄: ${ageText}`;
+          li.appendChild(meta);
+          const actions = document.createElement('div');
+          actions.className = 'actions';
+          actions.style.marginTop = '4px';
+          const editLink = document.createElement('a');
+          editLink.href = `/children/${c.id}/edit`;
+          editLink.textContent = '编辑';
+          editLink.style.marginRight = '8px';
+          actions.appendChild(editLink);
+          const delBtn = document.createElement('button');
+          delBtn.textContent = '删除';
+          delBtn.addEventListener('click', async () => {
+            if (!confirm('确认删除该儿童及其关联的会话与交互？此操作不可恢复')) return;
+            try {
+              const resp = await fetch(`/api/admin/children/${c.id}`, { method: 'DELETE' });
+              if (!resp.ok) throw new Error('HTTP ' + resp.status);
+              loadChildren();
+            } catch (err) {
+              alert('删除失败：' + (err.message || err));
+            }
+          });
+          actions.appendChild(delBtn);
+          li.appendChild(actions);
+          listEl.appendChild(li);
+        });
+      } catch (err) {
+        console.error('加载儿童列表失败', err);
+        const listEl = document.getElementById('children_list');
+        listEl.innerHTML = '<li>加载失败，请稍后重试。</li>';
+      }
+    }
+
+    loadChildren();
+  </script>
+</body>
+</html>

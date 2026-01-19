@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>知识库</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <h1>知识库（已上传文档）</h1>
+  <p><a href="/admin/upload_knowledge">上传新文档</a> | <a href="/admin">后台首页</a></p>
+  <ul id="knowledge_list">
+    <li>加载中...</li>
+  </ul>
+
+  <script>
+    async function loadKnowledge() {
+      try {
+        const res = await fetch('/api/admin/knowledge');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const listEl = document.getElementById('knowledge_list');
+        listEl.innerHTML = '';
+        if (!data.items || !data.items.length) {
+          listEl.innerHTML = '<li>暂无知识文档。</li>';
+          return;
+        }
+        data.items.forEach(it => {
+          const li = document.createElement('li');
+          const title = document.createElement('strong');
+          title.textContent = it.title;
+          li.appendChild(title);
+          const meta = document.createElement('span');
+          meta.textContent = ' （' + (it.last_update || '') + '）';
+          li.appendChild(meta);
+          li.appendChild(document.createElement('br'));
+          const src = document.createElement('span');
+          src.textContent = '来源: ' + (it.source_url || '');
+          li.appendChild(src);
+          li.appendChild(document.createElement('br'));
+          const form = document.createElement('form');
+          form.className = 'form-inline';
+          form.style.cssText = 'margin-top:6px;display:inline-flex;align-items:center;gap:8px;';
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!confirm('确认删除？此操作不可逆')) return;
+            try {
+              const fd = new FormData();
+              fd.append('knowledge_id', it.id);
+              const res2 = await fetch('/admin/knowledge/delete', { method: 'POST', body: fd });
+              if (!res2.ok) throw new Error('HTTP ' + res2.status);
+              loadKnowledge();
+            } catch (err) {
+              alert('删除失败：' + (err.message || err));
+            }
+          });
+          const btnWrap = document.createElement('div');
+          btnWrap.className = 'form-group';
+          btnWrap.style.margin = '0';
+          const btn = document.createElement('button');
+          btn.type = 'submit';
+          btn.textContent = '删除';
+          btnWrap.appendChild(btn);
+          form.appendChild(btnWrap);
+          li.appendChild(form);
+          listEl.appendChild(li);
+        });
+      } catch (err) {
+        console.error('加载知识库失败', err);
+        const listEl = document.getElementById('knowledge_list');
+        listEl.innerHTML = '<li>加载失败，请稍后重试。</li>';
+      }
+    }
+
+    loadKnowledge();
+  </script>
+</body>
+</html>
