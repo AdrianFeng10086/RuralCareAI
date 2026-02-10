@@ -2,26 +2,14 @@ import re
 import os
 import json
 import logging
+from types import SimpleNamespace
 from typing import Optional, List, Dict, Any
+import requests 
+from .db_models import Base, Child, Conversation, CrisisAlert, Interaction, SessionLocal, engine
+Base.metadata.create_all(bind=engine)
+from .rag_module import SFBTRAG
 
-# 可选导入
-try:
-    import ollama
-except Exception:
-    ollama = None
-
-from code.db_models import Child, Interaction, Conversation, SessionLocal, CrisisAlert
-
-try:
-    from code.rag_module import SFBTRAG
-except Exception:
-    class SFBTRAG:
-        def __init__(self): pass
-        def retrieve(self, query, top_k=3): return ''
-        def web_retrieve(self, *args, **kwargs): return []
-
-
-class SFBTDialogueManagerOllama:
+class SFBTDialogueManager:
     STAGES = ["目标设定阶段", "例外探索阶段", "量表问题阶段", "奇迹问题阶段", "行动计划阶段"]
 
     def __init__(self, model_name: str = None):
@@ -29,7 +17,7 @@ class SFBTDialogueManagerOllama:
         self.rag = SFBTRAG()
 
         # 环境变量工具
-        env = lambda k, d: os.getenv(k, d)
+        env = os.environ.get
         to_bool = lambda v, default: str(v).strip().lower() in ('1', 'true', 'yes') if v is not None else default
         to_int = lambda v, default: int(v) if v and str(v).strip().isdigit() and int(v) > 0 else default
 
@@ -40,34 +28,37 @@ class SFBTDialogueManagerOllama:
         self.web_timeout = to_int(env('WEB_RETRIEVAL_TIMEOUT', '10'), 10)
         self.web_prefer_baidu = to_bool(env('WEB_PREFER_BAIDU', '1'), True)
         self.max_context_chars = to_int(env('MAX_CONTEXT_CHARS', '1800'), 1800)
-        self.model_name = (model_name or env("OLLAMA_MODEL", "deepseek-r1:7b").strip()) or "deepseek-r1:7b"
-        self.temperature = float(env("OLLAMA_TEMPERATURE", "0.7"))
-        self.context_window = to_int(env("OLLAMA_NUM_CTX", "2048"), 2048)
-        self.max_predict_tokens = to_int(env("OLLAMA_NUM_PREDICT", "768"), 512)
+        self.model_name = (model_name or env("API_MODEL")).strip()
+        self.temperature = float(env("TEMPERATURE", "0.7"))
+        self.context_window = to_int(env("API_NUM_CTX", "2048"), 2048)
+        self.max_predict_tokens = to_int(env("API_MAX_TOKENS", "768"), 512)
+
+        # API 配置
+        self.api_url = (env("DEEPSEEK-API-URL")).strip()
+        self.api_key = (env("DEEPSEEK-API")).strip()
+        self.api_timeout = to_int(env("API_TIMEOUT", "30"), 30)
 
         # 日志（写在 run.py 同级目录）
         self.logger = logging.getLogger("SFBTDialogueManager")
         if not self.logger.handlers:
             try:
                 base_dir = os.path.dirname(os.path.abspath(os.path.join(__file__, os.pardir)))
-                log_path = os.path.join(base_dir, "sfbt_ollama_errors.log")
+                log_path = os.path.join(base_dir, "sfbt_api_errors.log")
             except Exception:
-                log_path = "sfbt_ollama_errors.log"
+                log_path = "sfbt_api_errors.log"
             handler = logging.FileHandler(log_path, encoding="utf-8")
             handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
             self.logger.addHandler(handler)
             self.logger.setLevel(logging.INFO)
 
-        # Ollama 客户端
-        self.client = None
-        if ollama:
-            try:
-                host = env("OLLAMA_HOST", None)
-                self.client = ollama.Client(host=host) if host else ollama.Client()
-            except Exception as e:
-                self.logger.warning("Failed to create ollama.Client(): %s", e)
-        else:
-            self.logger.warning("ollama SDK not available")
+        # 兜底确保表已创建
+        try:
+            from code.db_models import Base, engine
+            Base.metadata.create_all(bind=engine)
+        except Exception as e:
+            self._log("DB init failed: %s", e, level=logging.WARNING)
+
+  
 
     def _log(self, msg, *args, level=logging.INFO):
         try: self.logger.log(level, msg, *args)
@@ -79,6 +70,14 @@ class SFBTDialogueManagerOllama:
             child = Child(name=name)
             self.db.add(child); self.db.commit()
         return child
+
+    @staticmethod
+    def get_intro_text() -> str:
+        return (
+            "我是小益，SFBT咨询师。我会倾听你的需求和感受，用耐心陪伴你一起探索改变的方法。"
+            "我们可能会一起尝试一些简单的小活动，找到让你感觉更好的方式。如果你愿意分享你的经历或感受，随时可以告诉我。"
+            "让我们一起慢慢成长，找到属于你的小小改变！"
+        )
 
     def _next_stage(self, current_stage):
         if current_stage not in self.STAGES: return self.STAGES[0]
@@ -93,26 +92,27 @@ class SFBTDialogueManagerOllama:
         if self.max_predict_tokens: opts["num_predict"] = self.max_predict_tokens
         return opts
 
-    def _call_ollama(self, messages, temperature=None):
-        if not ollama and not self.client:
-            raise RuntimeError("ollama SDK not available")
+    def _call_api(self, messages, temperature=None):
+        if not self.api_url:
+            raise RuntimeError("API URL not configured")
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "max_tokens": self.max_predict_tokens,
+        }
+        try:
+            resp = requests.post(self.api_url, headers=headers, json=payload, timeout=self.api_timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            self._log("API call failed: %s", e, level=logging.ERROR)
+            raise
 
-        payload = {"model": self.model_name, "messages": messages, "options": self._build_chat_options(temperature)}
-        last_exc = None
 
-        if self.client:
-            try: return self.client.chat(**payload)
-            except Exception as e: last_exc = e
-        if ollama:
-            try: return ollama.chat(**payload)
-            except Exception as e: last_exc = e
-            try:
-                prompt = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in messages) + "\nASSISTANT:"
-                return ollama.generate(model=self.model_name, prompt=prompt, options=payload.get("options", {}))
-            except Exception as e: last_exc = e
-
-        self._log("All ollama calls failed: %s", last_exc, level=logging.ERROR)
-        raise last_exc or RuntimeError("Unable to invoke ollama")
 
     def _extract_reply(self, resp) -> str:
         try:
@@ -124,6 +124,7 @@ class SFBTDialogueManagerOllama:
                     resp.get("message", {}).get("content") or
                     resp.get("choices", [{}])[0].get("message", {}).get("content") or
                     resp.get("choices", [{}])[0].get("text") or
+                    resp.get("data", {}).get("content") or
                     ""
                 )
         except Exception: pass
@@ -262,8 +263,11 @@ class SFBTDialogueManagerOllama:
 
         return base
 
-    def generate_reply(self, child_name, user_input, conversation_id: int = None, include_explanation: bool = False, progress_callback=None, enable_web_retrieval: bool = None) -> Dict[str, Any]:
-        child = self._get_child(child_name)
+    def generate_reply(self, child_name, user_input, conversation_id: int = None, include_explanation: bool = False, progress_callback=None, enable_web_retrieval: bool = None, persist: bool = True) -> Dict[str, Any]:
+        if persist:
+            child = self._get_child(child_name)
+        else:
+            child = SimpleNamespace(name=child_name, stage="目标设定阶段", id=None)
         user_input = user_input.strip()
         web_contexts, web_sources = [], []
         web_query = user_input if (enable_web_retrieval is None or enable_web_retrieval) and self.enable_web_retrieval else ""
@@ -299,7 +303,7 @@ class SFBTDialogueManagerOllama:
                 local_ctx = self.rag.retrieve(user_input).strip().replace('\r', ' ')[:1200]
             except: pass
 
-        context = "\n\n".join(web_contexts + ([local_ctx] if local_ctx else ""))
+        context = "\n\n".join(web_contexts + ([local_ctx] if local_ctx else []))
         if self.max_context_chars and context:
             context = context[:self.max_context_chars]
 
@@ -312,12 +316,15 @@ class SFBTDialogueManagerOllama:
             }
 
         # 会话 & 历史
-        if not conversation_id:
+        if persist and not conversation_id:
             conversation_id = self.create_conversation(child_name)
 
-        interactions = self.db.query(Interaction)\
-            .filter_by(conversation_id=conversation_id)\
-            .order_by(Interaction.timestamp).all()
+        if persist:
+            interactions = self.db.query(Interaction)\
+                .filter_by(conversation_id=conversation_id)\
+                .order_by(Interaction.timestamp).all()
+        else:
+            interactions = []
 
         # 危机 & 伦理
         crisis = self._detect_crisis(user_input)
@@ -338,7 +345,7 @@ class SFBTDialogueManagerOllama:
             temp = max(0.3, self.temperature - 0.2 * attempt)
             if progress_callback: progress_callback(f"生成中（{attempt+1}/2）...")
             try:
-                resp = self._call_ollama(messages, temperature=temp)
+                resp = self._call_api(messages, temperature=temp)
                 raw = self._extract_reply(resp)
                 candidate = self._sanitize_reply(raw)
                 if self._is_valid_reply(candidate):
@@ -360,21 +367,22 @@ class SFBTDialogueManagerOllama:
                 reply = "我在这里陪着你。你愿意多说一点吗？"
 
         # 保存
-        interaction = Interaction(child_id=child.id, conversation_id=conversation_id,
-                                user_input=user_input, bot_response=reply)
-        self.db.add(interaction)
-        child.stage = self._next_stage(child.stage)
-        self.db.commit()
+        if persist:
+            interaction = Interaction(child_id=child.id, conversation_id=conversation_id,
+                                    user_input=user_input, bot_response=reply)
+            self.db.add(interaction)
+            child.stage = self._next_stage(child.stage)
+            self.db.commit()
 
-        # 危机告警
-        if crisis.get("any"):
-            try:
-                kinds = [v for k, v in {"suicide": "自杀", "self_harm": "自伤", "abuse": "受虐", "violence": "暴力"}.items() if crisis.get(k)]
-                alert = CrisisAlert(child_id=child.id, interaction_id=interaction.id,
-                                    flags=crisis, summary="、".join(kinds) + "风险")
-                self.db.add(alert); self.db.commit()
-            except Exception as e:
-                self._log("Alert failed: %s", e, level=logging.WARNING)
+            # 危机告警
+            if crisis.get("any"):
+                try:
+                    kinds = [v for k, v in {"suicide": "自杀", "self_harm": "自伤", "abuse": "受虐", "violence": "暴力"}.items() if crisis.get(k)]
+                    alert = CrisisAlert(child_id=child.id, interaction_id=interaction.id,
+                                        flags=crisis, summary="、".join(kinds) + "风险")
+                    self.db.add(alert); self.db.commit()
+                except Exception as e:
+                    self._log("Alert failed: %s", e, level=logging.WARNING)
 
         if progress_callback: progress_callback("完成")
 
@@ -391,9 +399,7 @@ class SFBTDialogueManagerOllama:
     def generate_intro_message(self, child_name: str, conversation_id: int) -> Optional[str]:
         if self.db.query(Interaction).filter_by(conversation_id=conversation_id).first():
             return None
-        intro = ("我是小益，SFBT咨询师。我会倾听你的需求和感受，用耐心陪伴你一起探索改变的方法。"
-			"我们可能会一起尝试一些简单的小活动，找到让你感觉更好的方式。如果你愿意分享你的经历或感受，随时可以告诉我。"
-			"让我们一起慢慢成长，找到属于你的小小改变！")
+        intro = self.get_intro_text()
 
         interaction = Interaction(
             child_id=self._get_child(child_name).id,

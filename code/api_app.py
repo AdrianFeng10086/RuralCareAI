@@ -6,17 +6,18 @@ from sqlalchemy.orm import Session
 import uvicorn
 import os
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
 import queue
 import json
 import time
 
-from code.db_models import SessionLocal, Child, Interaction, SFBTKnowledge, Conversation, CrisisAlert
-from code.auth import ADMIN_COOKIE_NAME, ADMIN_USERNAME, ADMIN_PASSWORD, require_admin, AdminAuthMiddleware
-from code.dialogue_manager_ollama import SFBTDialogueManagerOllama
+from .db_models import SessionLocal, Child, Interaction, SFBTKnowledge, Conversation, CrisisAlert
+from .auth import ADMIN_COOKIE_NAME, ADMIN_USERNAME, ADMIN_PASSWORD, require_admin, AdminAuthMiddleware
+from .dialogue_manager import SFBTDialogueManager
 try:
-	from code.rag_module import SFBTRAG
+	from .rag_module import SFBTRAG
 except Exception:
 	class SFBTRAG:
 		def __init__(self):
@@ -24,9 +25,26 @@ except Exception:
 		def retrieve(self, query, top_k=3):
 			return ''
 from PyPDF2 import PdfReader
-from code.alert_bus import subscribe as alert_subscribe, unsubscribe as alert_unsubscribe
+from .alert_bus import subscribe as alert_subscribe, unsubscribe as alert_unsubscribe
 
-app = FastAPI(title="SFBT 管理后台与 API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+	try:
+		with SessionLocal() as db:
+			result = _sync_uploads_knowledge(db)
+			_cleanup_reserved_children(db)
+		if result.get("added") or result.get("removed"):
+			try:
+				rag = SFBTRAG()
+				rag.build_vectorstore()
+			except Exception:
+				pass
+	except Exception:
+		pass
+	yield
+
+
+app = FastAPI(title="SFBT 管理后台与 API", lifespan=lifespan)
 app.add_middleware(AdminAuthMiddleware)
 
 # 资源路径：使用项目根目录的 templates 与 static（code/ 的上一级）
@@ -41,6 +59,63 @@ def get_db():
 		yield db
 	finally:
 		db.close()
+
+
+def _extract_text_from_path(path: Path) -> str:
+	text = ""
+	try:
+		if path.suffix.lower() == ".pdf":
+			reader = PdfReader(path)
+			pages = []
+			for p in reader.pages:
+				try:
+					pages.append(p.extract_text() or "")
+				except Exception:
+					pages.append("")
+			text = "\n\n".join(pages)
+		else:
+			text = path.read_text(encoding="utf-8", errors="ignore")
+	except Exception:
+		text = ""
+	return text
+
+
+def _sync_uploads_knowledge(db: Session) -> dict:
+	uploads_dir = BASE_DIR / "uploads" / "knowledge"
+	uploads_dir_resolved = str(uploads_dir.resolve())
+	rows = db.query(SFBTKnowledge).all()
+	existing = {k.source_url for k in rows if k.source_url}
+	added = 0
+	removed = 0
+	if uploads_dir.exists():
+		for item in uploads_dir.iterdir():
+			if not item.is_file():
+				continue
+			full_path = str(item.resolve())
+			if full_path in existing:
+				continue
+			text = _extract_text_from_path(item)
+			k = SFBTKnowledge(title=item.name, source_url=full_path, content=text)
+			db.add(k)
+			added += 1
+	for row in rows:
+		if not row.source_url:
+			continue
+		try:
+			src_path = Path(row.source_url).resolve()
+			common = os.path.commonpath([str(src_path), uploads_dir_resolved])
+			expected_root = uploads_dir_resolved
+			exists = src_path.exists()
+		except Exception:
+			continue
+		if common != expected_root:
+			continue
+		if not exists:
+			db.delete(row)
+			removed += 1
+	if added or removed:
+		db.commit()
+	return {"added": added, "removed": removed}
 
 
 @app.get("/admin/login", response_class=HTMLResponse)
@@ -189,16 +264,56 @@ def admin_alert_review(alert_id: int = Form(...), db: Session = Depends(get_db),
 
 
 USER_COOKIE_NAME = "user_account"
+GUEST_COOKIE_NAME = "guest_mode"
+GUEST_NAME = "游客"
+
+
+def _is_guest(request: Request) -> bool:
+	return request.cookies.get(GUEST_COOKIE_NAME) == "1"
+
+
+def _cleanup_reserved_children(db: Session) -> int:
+	reserved_names = ("user", "匿名儿童")
+	removed = 0
+	rows = db.query(Child).filter(Child.name.in_(reserved_names)).all()
+	for child in rows:
+		if child.account:
+			continue
+		interactions = db.query(Interaction).filter_by(child_id=child.id).all()
+		if interactions:
+			if len(interactions) > 1:
+				continue
+			intro = interactions[0]
+			if (intro.user_input or "").strip() not in ("（系统）开启对话", "(系统)开启对话"):
+				continue
+		try:
+			db.query(CrisisAlert).filter_by(child_id=child.id).delete()
+			db.query(Interaction).filter_by(child_id=child.id).delete()
+			db.query(Conversation).filter_by(child_id=child.id).delete()
+			db.delete(child)
+			removed += 1
+		except Exception:
+			pass
+	if removed:
+		db.commit()
+	return removed
 
 
 @app.get("/", response_class=HTMLResponse)
 def root_user_login(request: Request):
 	"""默认进入用户端登录界面。"""
 	# 如果已有用户 cookie，可以直接进入聊天页
-	if request.cookies.get(USER_COOKIE_NAME):
+	if request.cookies.get(USER_COOKIE_NAME) or _is_guest(request):
 		return RedirectResponse(url="/user/chat", status_code=303)
 	return templates.TemplateResponse("login.html", {"request": request, "error": None, "mode": "user"})
 
+
+@app.get("/user/guest")
+def user_guest_login():
+	resp = RedirectResponse(url="/user/chat", status_code=303)
+	resp.set_cookie(GUEST_COOKIE_NAME, "1", max_age=3600 * 24 * 30)
+	resp.delete_cookie(USER_COOKIE_NAME)
+	return resp
 
 @app.post("/user/login")
 def user_login(request: Request, account: str = Form(...), password: str = Form(""), db: Session = Depends(get_db)):
@@ -216,6 +331,7 @@ def user_login(request: Request, account: str = Form(...), password: str = Form(
 		return templates.TemplateResponse("login.html", {"request": request, "error": "账号或密码错误", "mode": "user"}, status_code=401)
 	resp = RedirectResponse(url="/user/chat", status_code=303)
 	resp.set_cookie(USER_COOKIE_NAME, account, max_age=3600 * 24 * 30)
+	resp.delete_cookie(GUEST_COOKIE_NAME)
 	return resp
 
 
@@ -223,18 +339,23 @@ def user_login(request: Request, account: str = Form(...), password: str = Form(
 def user_logout():
 	resp = RedirectResponse(url="/", status_code=303)
 	resp.delete_cookie(USER_COOKIE_NAME)
+	resp.delete_cookie(GUEST_COOKIE_NAME)
 	return resp
 
 
 @app.get("/user/chat", response_class=HTMLResponse)
 def user_chat_page(request: Request, db: Session = Depends(get_db)):
 	"""用户端聊天页面，需要先登录。"""
+	if _is_guest(request):
+		return templates.TemplateResponse("user_chat.html", {"request": request, "name": GUEST_NAME, "guest_mode": True, "intro": SFBTDialogueManager.get_intro_text()})
 	account = request.cookies.get(USER_COOKIE_NAME)
 	if not account:
 		return RedirectResponse(url="/", status_code=303)
 	child = db.query(Child).filter_by(account=account).first()
-	name = child.name if child else "匿名儿童" 
-	return templates.TemplateResponse("user_chat.html", {"request": request, "name": name})
+	if not child:
+		return RedirectResponse(url="/", status_code=303)
+	name = child.name
+	return templates.TemplateResponse("user_chat.html", {"request": request, "name": name, "guest_mode": False, "intro": None})
 
 
 @app.get("/children", response_class=HTMLResponse)
@@ -343,22 +464,6 @@ def delete_child(child_id: int = Form(...), db: Session = Depends(get_db), _: bo
 		db.rollback()
 		raise HTTPException(status_code=500, detail=f"删除失败: {e}")
 	return RedirectResponse(url="/children", status_code=303)
-
-
-@app.delete("/api/admin/children/{child_id}")
-def api_admin_delete_child(child_id: int, db: Session = Depends(get_db), _: bool = Depends(require_admin)):
-	child = db.query(Child).filter_by(id=child_id).first()
-	if not child:
-		raise HTTPException(status_code=404, detail="Child not found")
-	try:
-		db.query(Interaction).filter_by(child_id=child_id).delete()
-		db.query(Conversation).filter_by(child_id=child_id).delete()
-		db.delete(child)
-		db.commit()
-	except Exception as e:
-		db.rollback()
-		raise HTTPException(status_code=500, detail=f"删除失败: {e}")
-	return JSONResponse({"status": "ok"})
 
 
 @app.get("/children/{child_id}", response_class=HTMLResponse)
@@ -524,7 +629,48 @@ def api_admin_knowledge(db: Session = Depends(get_db), _: bool = Depends(require
 
 @app.get('/chat', response_class=HTMLResponse)
 def user_chat(request: Request):
-	return templates.TemplateResponse('user_chat.html', {'request': request})
+	# 检查是否为访客模式
+	if _is_guest(request):
+		return templates.TemplateResponse('user_chat.html', {
+			'request': request,
+			'name': GUEST_NAME,
+			'guest_mode': True,
+			'intro': SFBTDialogueManager.get_intro_text()
+		})
+	else:
+		# 非访客模式下，检查用户是否已登录
+		account = request.cookies.get(USER_COOKIE_NAME)
+		if not account:
+			# 如果未登录，返回访客模式
+			return templates.TemplateResponse('user_chat.html', {
+				'request': request,
+				'name': GUEST_NAME,
+			'guest_mode': True,
+			'intro': SFBTDialogueManager.get_intro_text()
+			})
+		
+		# 已登录用户
+		from .db_models import SessionLocal, Child
+		db = SessionLocal()
+		try:
+			child = db.query(Child).filter_by(account=account).first()
+			if child:
+				return templates.TemplateResponse('user_chat.html', {
+					'request': request,
+					'name': child.name,
+					'guest_mode': False,
+					'intro': None
+				})
+			else:
+				# 用户关联的儿童不存在，返回访客模式
+				return templates.TemplateResponse('user_chat.html', {
+					'request': request,
+					'name': GUEST_NAME,
+					'guest_mode': True,
+					'intro': SFBTDialogueManager.get_intro_text()
+				})
+		finally:
+			db.close()
 
 
 @app.post('/api/web_search')
@@ -548,40 +694,41 @@ def upload_knowledge_page(request: Request, _: bool = Depends(require_admin)):
 
 @app.post('/admin/upload_knowledge')
 async def upload_knowledge(file: UploadFile = File(...), title: str = Form(None), db: Session = Depends(get_db), _: bool = Depends(require_admin)):
-	uploads_dir = BASE_DIR / 'uploads' / 'knowledge'
-	uploads_dir.mkdir(parents=True, exist_ok=True)
-	filename = file.filename or 'uploaded.pdf'
-	dest = uploads_dir / filename
-	counter = 1
-	while dest.exists():
-		dest = uploads_dir / f"{dest.stem}_{counter}{dest.suffix}"
-		counter += 1
-	content = await file.read()
-	dest.write_bytes(content)
-	text = ''
-	try:
-		reader = PdfReader(dest)
-		pages = []
-		for p in reader.pages:
-			try:
-				pages.append(p.extract_text() or '')
-			except Exception:
-				pages.append('')
-		text = "\n\n".join(pages)
-	except Exception:
-		try:
-			text = content.decode('utf-8', errors='ignore')
-		except Exception:
-			text = ''
-	k = SFBTKnowledge(title=title or filename, source_url=str(dest), content=text)
-	db.add(k)
-	db.commit()
+	await _save_uploaded_knowledge(file, title, db)
 	try:
 		rag = SFBTRAG()
 		rag.build_vectorstore()
 	except Exception:
 		pass
 	return RedirectResponse(url='/admin/knowledge', status_code=303)
+
+
+@app.post('/api/admin/upload_knowledge')
+async def api_admin_upload_knowledge(file: UploadFile = File(...), title: str = Form(None), db: Session = Depends(get_db), _: bool = Depends(require_admin)):
+	k = await _save_uploaded_knowledge(file, title, db)
+	try:
+		rag = SFBTRAG()
+		rag.build_vectorstore()
+	except Exception:
+		pass
+	return JSONResponse({
+		"id": k.id,
+		"title": k.title,
+		"source_url": k.source_url,
+		"last_update": k.last_update.isoformat() if k.last_update else None,
+	})
+
+
+@app.post('/api/admin/knowledge/sync')
+def api_admin_knowledge_sync(db: Session = Depends(get_db), _: bool = Depends(require_admin)):
+	result = _sync_uploads_knowledge(db)
+	if result.get("added") or result.get("removed"):
+		try:
+			rag = SFBTRAG()
+			rag.build_vectorstore()
+		except Exception:
+			pass
+	return JSONResponse(result)
 
 
 @app.post('/admin/knowledge/delete')
@@ -607,28 +754,45 @@ def admin_knowledge_delete(knowledge_id: int = Form(...), db: Session = Depends(
 @app.post("/api/chat")
 def api_chat(
 	request: Request,
-	child_name: str = Form(None),
 	user_input: str = Form(...),
 	conversation_id: int = Form(None),
 	include_explanation: bool = Form(False),
 	enable_web_retrieval: bool = Form(None)
 ):
 	"""非流式聊天接口。
-
-	- 兼容旧版：如果表单中传了 child_name，则直接使用
-	- 新版用户端：不传 child_name，而是从 USER_COOKIE_NAME 读取账号；若找得到对应儿童，则使用其 name
+	从 USER_COOKIE_NAME 读取账号；若找得到对应儿童，则使用其 name
 	"""
-	dm = SFBTDialogueManagerOllama()
-	name = (child_name or "").strip()
-	if not name:
-		account = request.cookies.get(USER_COOKIE_NAME)
-		if account:
-			with SessionLocal() as db:
-				child = db.query(Child).filter(Child.account == account).first()
-				if child and child.name:
-					name = child.name
-	if not name:
-		name = "匿名儿童"
+	dm = SFBTDialogueManager()
+	if _is_guest(request):
+		name = GUEST_NAME
+		try:
+			result = dm.generate_reply(
+				name,
+				user_input,
+				conversation_id=None,
+				include_explanation=include_explanation,
+				enable_web_retrieval=enable_web_retrieval,
+				persist=False,
+			)
+		except TypeError as exc:
+			if "include_explanation" in str(exc) or "persist" in str(exc):
+				result = dm.generate_reply(name, user_input, conversation_id=None, enable_web_retrieval=enable_web_retrieval, persist=False)
+			else:
+				raise
+		if isinstance(result, str):
+			return JSONResponse({"error": result}, status_code=500)
+		out = {"reply": result.get("reply"), "conversation_id": None}
+		if result.get("explanation"):
+			out["explanation"] = result.get("explanation")
+		return JSONResponse(out)
+	account = request.cookies.get(USER_COOKIE_NAME)
+	if not account:
+		return JSONResponse({"error": "未登录"}, status_code=401)
+	with SessionLocal() as db:
+		child = db.query(Child).filter(Child.account == account).first()
+		if not child or not child.name:
+			return JSONResponse({"error": "账号无效"}, status_code=401)
+		name = child.name
 	try:
 		result = dm.generate_reply(
 			name,
@@ -687,7 +851,7 @@ def api_chat_stream(
 	include_explanation: bool = Form(False),
 	enable_web_retrieval: bool = Form(None)
 ):
-	dm = SFBTDialogueManagerOllama()
+	dm = SFBTDialogueManager()
 	q = queue.Queue()
 	sentinel = object()
 	def progress_cb(msg):
@@ -695,17 +859,18 @@ def api_chat_stream(
 			q.put({'type': 'progress', 'msg': msg})
 		except Exception:
 			pass
-	# 解析最终要使用的孩子名字（兼容旧版 child_name + 新版账号）
-	name = (child_name or "").strip()
-	if not name:
+	
+	if _is_guest(request):
+		name = GUEST_NAME
+	else:
 		account = request.cookies.get(USER_COOKIE_NAME)
-		if account:
-			with SessionLocal() as db:
-				child = db.query(Child).filter(Child.account == account).first()
-				if child and child.name:
-					name = child.name
-	if not name:
-		name = "匿名儿童"
+		if not account:
+			return JSONResponse({"error": "未登录"}, status_code=401)
+		with SessionLocal() as db:
+			child = db.query(Child).filter(Child.account == account).first()
+			if not child or not child.name:
+				return JSONResponse({"error": "账号无效"}, status_code=401)
+			name = child.name
 
 	def worker():
 		try:
@@ -717,10 +882,11 @@ def api_chat_stream(
 					include_explanation=include_explanation,
 					progress_callback=progress_cb,
 					enable_web_retrieval=enable_web_retrieval,
+					persist=not _is_guest(request),
 				)
 			except TypeError as exc:
-				if "include_explanation" in str(exc) or "progress_callback" in str(exc):
-					result = dm.generate_reply(name, user_input, conversation_id=conversation_id, enable_web_retrieval=enable_web_retrieval)
+				if "include_explanation" in str(exc) or "progress_callback" in str(exc) or "persist" in str(exc):
+					result = dm.generate_reply(name, user_input, conversation_id=conversation_id, enable_web_retrieval=enable_web_retrieval, persist=not _is_guest(request))
 				else:
 					raise
 			q.put({'type': 'result', 'result': result})
@@ -754,16 +920,21 @@ def api_chat_stream(
 
 @app.post("/api/conversations/create")
 def api_create_conversation(request: Request, child_name: str = Form(None), title: str = Form(None)):
-	"""创建会话。
-
-	- 如果前端显式传入 child_name，则按原逻辑以姓名区分儿童（兼容旧版）。
-	- 否则，从用户登录时设置的 USER_COOKIE_NAME 中读取账号，将其作为“儿童标识”传给对话管理器，
+	"""创建会话。	
+	- 从用户登录时设置的 USER_COOKIE_NAME 中读取账号，将其作为“儿童标识”传给对话管理器，
 	  从而实现“儿童信息与账号相关联”。
 	"""
-	dm = SFBTDialogueManagerOllama()
-	name = (child_name or "").strip()
-	if not name:
-		name = request.cookies.get(USER_COOKIE_NAME) or "匿名儿童"
+	dm = SFBTDialogueManager()
+	if _is_guest(request):
+		return JSONResponse({"conversation_id": None, "intro": dm.get_intro_text()})
+	account = request.cookies.get(USER_COOKIE_NAME)
+	if not account:
+		return JSONResponse({"error": "未登录"}, status_code=401)
+	with SessionLocal() as db:
+		child = db.query(Child).filter(Child.account == account).first()
+		if not child or not child.name:
+			return JSONResponse({"error": "账号无效"}, status_code=401)
+		name = child.name
 	conv_id = dm.create_conversation(name, title=title)
 	intro = None
 	try:

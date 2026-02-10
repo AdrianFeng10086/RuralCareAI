@@ -4,7 +4,7 @@ from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, JSON, text, Boolean
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./sfbt_ollama.db"
+SQLALCHEMY_DATABASE_URL = "sqlite:///./sfbt.db"
 
 engine = create_engine(
 	SQLALCHEMY_DATABASE_URL,

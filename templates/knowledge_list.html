@@ -8,6 +8,7 @@
 <body>
   <h1>知识库（已上传文档）</h1>
   <p><a href="/admin/upload_knowledge">上传新文档</a> | <a href="/admin">后台首页</a></p>
+  <p id="sync_status" style="margin-top:8px;"></p>
   <ul id="knowledge_list">
     <li>加载中...</li>
   </ul>
@@ -72,6 +73,28 @@
     }
 
     loadKnowledge();
+
+    async function syncUploads() {
+      const statusEl = document.getElementById('sync_status');
+      try {
+        const res = await fetch('/api/admin/knowledge/sync', { method: 'POST' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const added = data.added || 0;
+        const removed = data.removed || 0;
+        if (added > 0 || removed > 0) {
+          statusEl.textContent = '已同步：新增 ' + added + ' 条，移除 ' + removed + ' 条。';
+          loadKnowledge();
+        } else {
+          statusEl.textContent = '已同步，暂无新增或移除。';
+        }
+      } catch (err) {
+        statusEl.textContent = '同步失败：' + (err.message || err);
+      }
+    }
+
+    syncUploads();
+    setInterval(syncUploads, 10000);
   </script>
 </body>
 </html>

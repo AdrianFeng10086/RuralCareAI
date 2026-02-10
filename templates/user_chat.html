@@ -37,6 +37,8 @@
 
   <script>
     let conversationId = null;
+    const guestMode = {{ 'true' if guest_mode else 'false' }};
+    const guestIntro = {{ intro | tojson }};
     const chatbox = document.getElementById('chatbox');
     const statusTextEl = document.getElementById('status_text');
     const statusSpinnerEl = document.getElementById('status_spinner');
@@ -100,9 +102,21 @@
 
     // 页面加载后自动创建一个会话，使用后端根据登录账号识别/创建儿童
     window.addEventListener('load', async () => {
+      if (guestMode) {
+        conversationId = 0;
+        chatbox.innerHTML = '';
+        if (guestIntro) {
+          appendMessage('bot', guestIntro);
+        }
+        return;
+      }
       try {
         const form = new FormData();
         const res = await fetch('/api/conversations/create', { method: 'POST', body: form });
+        if (!res.ok) {
+          setStatus('未登录或账号无效', false);
+          return;
+        }
         const data = await res.json();
         if (data.conversation_id) {
           conversationId = data.conversation_id;
@@ -123,7 +137,7 @@
       e.preventDefault();
       const text = document.getElementById('user_text').value.trim();
       if (!text) return;
-      if (!conversationId) { alert('会话尚未准备好，请稍后再试'); return; }
+      if (conversationId === null || conversationId === undefined) { alert('会话尚未准备好，请稍后再试'); return; }
       appendMessage('user', text);
       document.getElementById('user_text').value = '';
 

@@ -7,7 +7,7 @@
 </head>
 <body>
   <h1>上传 SFBT 知识文档（PDF）</h1>
-  <form action="/admin/upload_knowledge" enctype="multipart/form-data" method="post">
+  <form id="uploadForm" action="/admin/upload_knowledge" enctype="multipart/form-data" method="post">
     <div class="form-group">
       <label for="title">标题（可选）</label>
       <input name="title" id="title" type="text" placeholder="例如：SFBT 介绍" />
@@ -19,6 +19,26 @@
     </div>
     <button type="submit">上传并加入知识库</button>
   </form>
+  <p id="uploadStatus" style="margin-top:12px;"></p>
   <p><a href="/admin/knowledge">返回知识列表</a> | <a href="/admin">后台首页</a></p>
+
+  <script>
+    const formEl = document.getElementById('uploadForm');
+    const statusEl = document.getElementById('uploadStatus');
+    formEl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      statusEl.textContent = '上传中...';
+      try {
+        const fd = new FormData(formEl);
+        const res = await fetch('/api/admin/upload_knowledge', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        statusEl.textContent = '上传成功：' + (data.title || '已加入知识库');
+        formEl.reset();
+      } catch (err) {
+        statusEl.textContent = '上传失败：' + (err.message || err);
+      }
+    });
+  </script>
 </body>
 </html>
