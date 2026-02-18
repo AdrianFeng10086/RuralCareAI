@@ -34,9 +34,9 @@
           meta.textContent = ' （' + (it.last_update || '') + '）';
           li.appendChild(meta);
           li.appendChild(document.createElement('br'));
-          const src = document.createElement('span');
-          src.textContent = '来源: ' + (it.source_url || '');
-          li.appendChild(src);
+          const code = document.createElement('span');
+          code.textContent = '来源: ' + (it.source_url || '');
+          li.appendChild(code);
           li.appendChild(document.createElement('br'));
           const form = document.createElement('form');
           form.className = 'form-inline';

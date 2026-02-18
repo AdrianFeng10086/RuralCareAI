@@ -37,7 +37,7 @@ class SimpleHashEmbeddings:
 		self.dim = dim
 
 	def _embed(self, text: str):
-		data = (text or "").ensrc("utf-8")
+		data = (text or "").encode("utf-8")
 		digest = hashlib.sha256(data).digest()
 		buf = bytearray()
 		while len(buf) < self.dim:
@@ -104,7 +104,7 @@ class SFBTRAG:
 			pn = (p - 1) * 10
 			url = f"https://www.baidu.com/s?wd={q}&pn={pn}"
 			resp = requests.get(url, headers=self._http_headers, timeout=min(timeout, 5))
-			if resp.status_src != 200:
+			if resp.status_code != 200:
 				continue
 			soup = BeautifulSoup(resp.text, 'html.parser')
 			for h3 in soup.find_all('h3'):
@@ -137,7 +137,7 @@ class SFBTRAG:
 			first = 1 + (p - 1) * 10
 			url = f"https://cn.bing.com/search?q={q}&first={first}"
 			resp = requests.get(url, headers=self._http_headers, timeout=min(timeout, 5))
-			if resp.status_src != 200:
+			if resp.status_code != 200:
 				continue
 			soup = BeautifulSoup(resp.text, 'html.parser')
 			for li in soup.select('li.b_algo'):
@@ -330,7 +330,7 @@ class SFBTRAG:
 						except Exception:
 							pass
 					continue
-				if r.status_src != 200:
+				if r.status_code != 200:
 					continue
 				text = ''
 				try:

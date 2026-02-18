@@ -1,5 +1,4 @@
 sentence-transformers
-langchain
 langchain-community
 langchain-huggingface
 faiss-cpu
@@ -8,7 +7,8 @@ beautifulsoup4
 trafilatura
 python-dotenv
 fastapi
-uvicorn[standard]
+uvicorn
 jinja2
 python-multipart
 PyPDF2
+sqlalchemy

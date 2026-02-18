@@ -102,10 +102,10 @@ def _sync_uploads_knowledge(db: Session) -> dict:
 		if not row.source_url:
 			continue
 		try:
-			src_path = Path(row.source_url).resolve()
-			common = os.path.commonpath([str(src_path), uploads_dir_resolved])
+			code_path = Path(row.source_url).resolve()
+			common = os.path.commonpath([str(code_path), uploads_dir_resolved])
 			expected_root = uploads_dir_resolved
-			exists = src_path.exists()
+			exists = code_path.exists()
 		except Exception:
 			continue
 		if common != expected_root:
@@ -128,16 +128,16 @@ def admin_login_page(request: Request):
 def admin_login(request: Request, username: str = Form(...), password: str = Form(...)):
 	"""管理端登录逻辑（保持原有账号密码）。"""
 	if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-		resp = RedirectResponse(url="/admin", status_src=303)
+		resp = RedirectResponse(url="/admin", status_code=303)
 		resp.set_cookie(ADMIN_COOKIE_NAME, "ok", httponly=True, max_age=3600 * 8)
 		return resp
-	return templates.TemplateResponse("login.html", {"request": request, "error": "账号或密码错误", "mode": "admin"}, status_src=401)
+	return templates.TemplateResponse("login.html", {"request": request, "error": "账号或密码错误", "mode": "admin"}, status_code=401)
 
 
 @app.get("/admin/logout")
 def admin_logout(next: str = None):
 	target = next if (isinstance(next, str) and next.startswith('/')) else "/admin/login"
-	resp = RedirectResponse(url=target, status_src=303)
+	resp = RedirectResponse(url=target, status_code=303)
 	resp.delete_cookie(ADMIN_COOKIE_NAME)
 	return resp
 
@@ -256,11 +256,11 @@ def api_admin_alerts(q: str = None, db: Session = Depends(get_db), _: bool = Dep
 def admin_alert_review(alert_id: int = Form(...), db: Session = Depends(get_db), _: bool = Depends(require_admin)):
 	alert = db.query(CrisisAlert).filter_by(id=alert_id).first()
 	if not alert:
-		return JSONResponse({'error': 'not found'}, status_src=404)
+		return JSONResponse({'error': 'not found'}, status_code=404)
 	alert.reviewed = True
 	alert.reviewed_at = datetime.now(timezone.utc)
 	db.commit()
-	return RedirectResponse(url='/admin/alerts', status_src=303)
+	return RedirectResponse(url='/admin/alerts', status_code=303)
 
 
 USER_COOKIE_NAME = "user_account"
@@ -304,13 +304,13 @@ def root_user_login(request: Request):
 	"""默认进入用户端登录界面。"""
 	# 如果已有用户 cookie，可以直接进入聊天页
 	if request.cookies.get(USER_COOKIE_NAME) or _is_guest(request):
-		return RedirectResponse(url="/user/chat", status_src=303)
+		return RedirectResponse(url="/user/chat", status_code=303)
 	return templates.TemplateResponse("login.html", {"request": request, "error": None, "mode": "user"})
 
 
 @app.get("/user/guest")
 def user_guest_login():
-	resp = RedirectResponse(url="/user/chat", status_src=303)
+	resp = RedirectResponse(url="/user/chat", status_code=303)
 	resp.set_cookie(GUEST_COOKIE_NAME, "1", max_age=3600 * 24 * 30)
 	resp.delete_cookie(USER_COOKIE_NAME)
 	return resp
@@ -325,11 +325,11 @@ def user_login(request: Request, account: str = Form(...), password: str = Form(
 	account = (account or "").strip()
 	password = (password or "").strip()
 	if not account:
-		return templates.TemplateResponse("login.html", {"request": request, "error": "请输入账号", "mode": "user"}, status_src=400)
+		return templates.TemplateResponse("login.html", {"request": request, "error": "请输入账号", "mode": "user"}, status_code=400)
 	child = db.query(Child).filter(Child.account == account).first()
 	if not child or (child.password or "") != password:
-		return templates.TemplateResponse("login.html", {"request": request, "error": "账号或密码错误", "mode": "user"}, status_src=401)
-	resp = RedirectResponse(url="/user/chat", status_src=303)
+		return templates.TemplateResponse("login.html", {"request": request, "error": "账号或密码错误", "mode": "user"}, status_code=401)
+	resp = RedirectResponse(url="/user/chat", status_code=303)
 	resp.set_cookie(USER_COOKIE_NAME, account, max_age=3600 * 24 * 30)
 	resp.delete_cookie(GUEST_COOKIE_NAME)
 	return resp
@@ -337,7 +337,7 @@ def user_login(request: Request, account: str = Form(...), password: str = Form(
 
 @app.get("/user/logout")
 def user_logout():
-	resp = RedirectResponse(url="/", status_src=303)
+	resp = RedirectResponse(url="/", status_code=303)
 	resp.delete_cookie(USER_COOKIE_NAME)
 	resp.delete_cookie(GUEST_COOKIE_NAME)
 	return resp
@@ -350,10 +350,10 @@ def user_chat_page(request: Request, db: Session = Depends(get_db)):
 		return templates.TemplateResponse("user_chat.html", {"request": request, "name": GUEST_NAME, "guest_mode": True, "intro": SFBTDialogueManager.get_intro_text()})
 	account = request.cookies.get(USER_COOKIE_NAME)
 	if not account:
-		return RedirectResponse(url="/", status_src=303)
+		return RedirectResponse(url="/", status_code=303)
 	child = db.query(Child).filter_by(account=account).first()
 	if not child:
-		return RedirectResponse(url="/", status_src=303)
+		return RedirectResponse(url="/", status_code=303)
 	name = child.name
 	return templates.TemplateResponse("user_chat.html", {"request": request, "name": name, "guest_mode": False, "intro": None})
 
@@ -412,7 +412,7 @@ def create_child(
 	)
 	db.add(child)
 	db.commit()
-	return RedirectResponse(url="/children", status_src=303)
+	return RedirectResponse(url="/children", status_code=303)
 
 
 @app.post("/api/admin/children")
@@ -454,7 +454,7 @@ def api_admin_create_child(
 def delete_child(child_id: int = Form(...), db: Session = Depends(get_db), _: bool = Depends(require_admin)):
 	child = db.query(Child).filter_by(id=child_id).first()
 	if not child:
-		raise HTTPException(status_src=404, detail="Child not found")
+		raise HTTPException(status_code=404, detail="Child not found")
 	try:
 		db.query(Interaction).filter_by(child_id=child_id).delete()
 		db.query(Conversation).filter_by(child_id=child_id).delete()
@@ -462,15 +462,15 @@ def delete_child(child_id: int = Form(...), db: Session = Depends(get_db), _: bo
 		db.commit()
 	except Exception as e:
 		db.rollback()
-		raise HTTPException(status_src=500, detail=f"删除失败: {e}")
-	return RedirectResponse(url="/children", status_src=303)
+		raise HTTPException(status_code=500, detail=f"删除失败: {e}")
+	return RedirectResponse(url="/children", status_code=303)
 
 
 @app.get("/children/{child_id}", response_class=HTMLResponse)
 def view_child(request: Request, child_id: int, db: Session = Depends(get_db), _: bool = Depends(require_admin)):
 	child = db.query(Child).filter_by(id=child_id).first()
 	if not child:
-		raise HTTPException(status_src=404, detail="Child not found")
+		raise HTTPException(status_code=404, detail="Child not found")
 	interactions = db.query(Interaction).filter_by(child_id=child_id).order_by(Interaction.timestamp).all()
 	interactions_serialized = []
 	for it in interactions:
@@ -489,7 +489,7 @@ def api_admin_child_detail(child_id: int, db: Session = Depends(get_db), _: bool
 	"""单个儿童档案 JSON（含基本信息与交互简表）。"""
 	child = db.query(Child).filter_by(id=child_id).first()
 	if not child:
-		raise HTTPException(status_src=404, detail="Child not found")
+		raise HTTPException(status_code=404, detail="Child not found")
 	interactions = db.query(Interaction).filter_by(child_id=child_id).order_by(Interaction.timestamp).all()
 	items = []
 	for it in interactions:
@@ -520,7 +520,7 @@ def api_admin_child_detail(child_id: int, db: Session = Depends(get_db), _: bool
 def edit_child_page(request: Request, child_id: int, db: Session = Depends(get_db), _: bool = Depends(require_admin)):
 	child = db.query(Child).filter_by(id=child_id).first()
 	if not child:
-		raise HTTPException(status_src=404, detail="Child not found")
+		raise HTTPException(status_code=404, detail="Child not found")
 	return templates.TemplateResponse("edit_child.html", {"request": request, "child": child})
 
 
@@ -540,7 +540,7 @@ def update_child(
 ):
 	child = db.query(Child).filter_by(id=child_id).first()
 	if not child:
-		raise HTTPException(status_src=404, detail="Child not found")
+		raise HTTPException(status_code=404, detail="Child not found")
 	age_value = int(age) if age not in (None, "") else None
 	child.name = name
 	# 账号可修改，密码仅在填写时更新
@@ -554,7 +554,7 @@ def update_child(
 	child.case_notes = case_notes if case_notes is not None else child.case_notes
 	child.last_update = datetime.now(timezone.utc)
 	db.commit()
-	return RedirectResponse(url="/children", status_src=303)
+	return RedirectResponse(url="/children", status_code=303)
 
 
 @app.post("/api/admin/children/{child_id}")
@@ -573,7 +573,7 @@ def api_admin_update_child(
 ):
 	child = db.query(Child).filter_by(id=child_id).first()
 	if not child:
-		raise HTTPException(status_src=404, detail="Child not found")
+		raise HTTPException(status_code=404, detail="Child not found")
 	age_value = int(age) if age not in (None, "") else None
 	child.name = name
 	child.account = (account or None) or child.account
@@ -679,7 +679,7 @@ def api_web_search(query: str = Form(...), top_k: int = Form(3)):
 	try:
 		results = rag.web_retrieve(query, top_k=top_k, search_pages=1)
 	except Exception as e:
-		return JSONResponse({'error': str(e)}, status_src=500)
+		return JSONResponse({'error': str(e)}, status_code=500)
 	out = []
 	for r in results:
 		snippet = (r.get('content') or '')[:500]
@@ -700,7 +700,7 @@ async def upload_knowledge(file: UploadFile = File(...), title: str = Form(None)
 		rag.build_vectorstore()
 	except Exception:
 		pass
-	return RedirectResponse(url='/admin/knowledge', status_src=303)
+	return RedirectResponse(url='/admin/knowledge', status_code=303)
 
 
 @app.post('/api/admin/upload_knowledge')
@@ -735,7 +735,7 @@ def api_admin_knowledge_sync(db: Session = Depends(get_db), _: bool = Depends(re
 def admin_knowledge_delete(knowledge_id: int = Form(...), db: Session = Depends(get_db), _: bool = Depends(require_admin)):
 	k = db.query(SFBTKnowledge).filter_by(id=knowledge_id).first()
 	if not k:
-		return JSONResponse({'error': 'not found'}, status_src=404)
+		return JSONResponse({'error': 'not found'}, status_code=404)
 	try:
 		if k.source_url and os.path.exists(k.source_url):
 			os.remove(k.source_url)
@@ -748,7 +748,7 @@ def admin_knowledge_delete(knowledge_id: int = Form(...), db: Session = Depends(
 		rag.build_vectorstore()
 	except Exception:
 		pass
-	return RedirectResponse(url='/admin/knowledge', status_src=303)
+	return RedirectResponse(url='/admin/knowledge', status_code=303)
 
 
 @app.post("/api/chat")
@@ -780,18 +780,18 @@ def api_chat(
 			else:
 				raise
 		if isinstance(result, str):
-			return JSONResponse({"error": result}, status_src=500)
+			return JSONResponse({"error": result}, status_code=500)
 		out = {"reply": result.get("reply"), "conversation_id": None}
 		if result.get("explanation"):
 			out["explanation"] = result.get("explanation")
 		return JSONResponse(out)
 	account = request.cookies.get(USER_COOKIE_NAME)
 	if not account:
-		return JSONResponse({"error": "未登录"}, status_src=401)
+		return JSONResponse({"error": "未登录"}, status_code=401)
 	with SessionLocal() as db:
 		child = db.query(Child).filter(Child.account == account).first()
 		if not child or not child.name:
-			return JSONResponse({"error": "账号无效"}, status_src=401)
+			return JSONResponse({"error": "账号无效"}, status_code=401)
 		name = child.name
 	try:
 		result = dm.generate_reply(
@@ -807,7 +807,7 @@ def api_chat(
 		else:
 			raise
 	if isinstance(result, str):
-		return JSONResponse({"error": result}, status_src=500)
+		return JSONResponse({"error": result}, status_code=500)
 	out = {"reply": result.get("reply"), "conversation_id": result.get("conversation_id")}
 	if result.get("explanation"):
 		out["explanation"] = result.get("explanation")
@@ -819,7 +819,7 @@ def _format_sse(event: str, data: str) -> bytes:
 	for line in str(data).splitlines():
 		msg += f"data: {line}\n"
 	msg += "\n"
-	return msg.ensrc('utf-8')
+	return msg.encode('utf-8')
 
 
 @app.get('/admin/alerts/stream')
@@ -865,11 +865,11 @@ def api_chat_stream(
 	else:
 		account = request.cookies.get(USER_COOKIE_NAME)
 		if not account:
-			return JSONResponse({"error": "未登录"}, status_src=401)
+			return JSONResponse({"error": "未登录"}, status_code=401)
 		with SessionLocal() as db:
 			child = db.query(Child).filter(Child.account == account).first()
 			if not child or not child.name:
-				return JSONResponse({"error": "账号无效"}, status_src=401)
+				return JSONResponse({"error": "账号无效"}, status_code=401)
 			name = child.name
 
 	def worker():
@@ -929,11 +929,11 @@ def api_create_conversation(request: Request, child_name: str = Form(None), titl
 		return JSONResponse({"conversation_id": None, "intro": dm.get_intro_text()})
 	account = request.cookies.get(USER_COOKIE_NAME)
 	if not account:
-		return JSONResponse({"error": "未登录"}, status_src=401)
+		return JSONResponse({"error": "未登录"}, status_code=401)
 	with SessionLocal() as db:
 		child = db.query(Child).filter(Child.account == account).first()
 		if not child or not child.name:
-			return JSONResponse({"error": "账号无效"}, status_src=401)
+			return JSONResponse({"error": "账号无效"}, status_code=401)
 		name = child.name
 	conv_id = dm.create_conversation(name, title=title)
 	intro = None

@@ -32,7 +32,7 @@
   (function(){
     async function loadAlerts(query) {
       try {
-        const params = query ? ('?q=' + ensrcURIComponent(query)) : '';
+        const params = query ? ('?q=' + encodeURIComponent(query)) : '';
         const res = await fetch('/api/admin/alerts' + params);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
