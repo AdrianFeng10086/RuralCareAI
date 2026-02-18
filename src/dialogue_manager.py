@@ -53,7 +53,7 @@ class SFBTDialogueManager:
 
         # 兜底确保表已创建
         try:
-            from code.db_models import Base, engine
+            from src.db_models import Base, engine
             Base.metadata.create_all(bind=engine)
         except Exception as e:
             self._log("DB init failed: %s", e, level=logging.WARNING)

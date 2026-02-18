@@ -12,7 +12,7 @@ ADMIN_COOKIE_NAME = "admin_session"
 def require_admin(request: Request):
 	if request.cookies.get(ADMIN_COOKIE_NAME) == "ok":
 		return True
-	raise HTTPException(status_code=303, detail="Redirect", headers={"Location": "/admin/login"})
+	raise HTTPException(status_src=303, detail="Redirect", headers={"Location": "/admin/login"})
 
 
 class AdminAuthMiddleware(BaseHTTPMiddleware):
@@ -23,5 +23,5 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
 		path = request.url.path
 		if path.startswith('/admin') and not path.startswith('/admin/login') and not path.startswith('/admin/logout'):
 			if request.cookies.get(ADMIN_COOKIE_NAME) != 'ok':
-				return StarletteRedirectResponse(url='/admin/login', status_code=303)
+				return StarletteRedirectResponse(url='/admin/login', status_src=303)
 		return await call_next(request)

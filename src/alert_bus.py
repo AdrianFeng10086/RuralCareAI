@@ -1,4 +1,4 @@
-# Simple in-process alert pub/sub bus for SSE broadcasting (under code package)
+# Simple in-process alert pub/sub bus for SSE broadcasting (under src package)
 import queue
 from typing import List, Dict, Any
 

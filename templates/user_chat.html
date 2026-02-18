@@ -74,7 +74,7 @@
     function markdownToHtml(md) {
       if (!md) return '';
       let s = escapeHtml(md);
-      s = s.replace(/`([^`]+?)`/g, '<code>$1</code>');
+      s = s.replace(/`([^`]+?)`/g, '<src>$1</src>');
       s = s.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
       s = s.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
       const lines = s.split(/\r?\n/);
@@ -161,14 +161,14 @@
         }
         setStatus('开始接收模型进度...', true);
         const reader = res.body.getReader();
-        const decoder = new TextDecoder('utf-8');
+        const desrcr = new TextDesrcr('utf-8');
         let buf = '';
         let done = false;
         while (!done) {
           const { value, done: streamDone } = await reader.read();
           done = streamDone;
           if (value) {
-            buf += decoder.decode(value, { stream: true });
+            buf += desrcr.desrc(value, { stream: true });
             let parts = buf.split('\n\n');
             buf = parts.pop();
             for (let p of parts) {
