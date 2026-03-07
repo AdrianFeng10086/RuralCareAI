@@ -2,40 +2,583 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>儿童聊天（用户端）</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
-    #chatbox { border:1px solid #ddd; padding:10px; height:400px; overflow:auto; background:#fff }
-    .msg.user { color: #0a58ca; }
-    .msg.bot { color: #2b8a3e; }
+    .user-chat-shell {
+      max-width: 1240px;
+    }
+    .user-chat-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .chat-panel,
+    .avatar-panel {
+      border: 1px solid #dfe5ee;
+      border-radius: 14px;
+      background: #ffffff;
+      box-shadow: 0 2px 10px rgba(34, 65, 98, 0.08);
+      padding: 14px;
+    }
+    .chat-panel {
+      min-height: 630px;
+    }
+    .avatar-panel {
+      position: sticky;
+      top: 12px;
+    }
+    #chatbox {
+      border: 1px solid #dfe5ee;
+      border-radius: 10px;
+      padding: 12px;
+      height: 420px;
+      overflow: auto;
+      background: linear-gradient(180deg, #ffffff 0%, #f9fbff 100%);
+      margin-bottom: 10px;
+    }
+    .msg {
+      margin-bottom: 8px;
+      line-height: 1.6;
+    }
+    .msg.user { color: #1f4f95; }
+    .msg.bot { color: #1f6b3f; }
+    .status-line {
+      font-size: 13px;
+      color: #556677;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .loading {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid #b7c5d8;
+      border-top-color: #4f7db8;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    #live2d_stage {
+      position: relative;
+      width: 100%;
+      height: 520px;
+      border-radius: 12px;
+      border: 1px solid #dbe3ef;
+      background: radial-gradient(circle at 50% 22%, #ffffff 0%, #edf4ff 58%, #d6e7ff 100%);
+      overflow: hidden;
+    }
+    #live2d_canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #avatar_hint {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      font-size: 12px;
+      color: #355076;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid #c8d5ea;
+      border-radius: 999px;
+      padding: 4px 10px;
+      backdrop-filter: blur(2px);
+    }
+    .avatar-controls {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .avatar-controls button {
+      border: 1px solid #98b4da;
+      border-radius: 999px;
+      padding: 6px 12px;
+      background: #f5f9ff;
+      color: #27466e;
+      cursor: pointer;
+    }
+    .avatar-controls button:hover {
+      background: #e8f0ff;
+    }
+    .avatar-status {
+      margin-top: 8px;
+      color: #4f6078;
+      font-size: 13px;
+    }
+    .tts-panel {
+      margin-top: 10px;
+      border: 1px solid #dbe3ef;
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 8px;
+    }
+    .tts-row {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: #3f587a;
+    }
+    .tts-row:last-child {
+      margin-bottom: 0;
+    }
+    .tts-row select,
+    .tts-row input[type="range"] {
+      width: 100%;
+    }
+    .tts-hint {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #5b6f8b;
+    }
+    @media (max-width: 960px) {
+      .user-chat-layout {
+        grid-template-columns: 1fr;
+      }
+      .avatar-panel {
+        position: static;
+      }
+      #live2d_stage {
+        height: 380px;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>儿童对话（用户端）</h1>
-  <p>此页面面向已登录的儿童用户，用于与“小益”对话。</p>
-  <p style="font-size: 13px; color:#555;">当前账号：<strong>{{ name }}</strong> ｜ <a href="/user/logout">退出登录</a></p>
+  <main class="user-chat-shell">
+    <h1>儿童对话（用户端）</h1>
+    <p>此页面面向已登录的儿童用户，用于与“小益”对话。</p>
+    <p style="font-size: 13px; color:#555;">当前账号：<strong>{{ name }}</strong> ｜ <a href="/user/logout">退出登录</a></p>
 
-  <div id="chatbox"></div>
-  <div id="status" class="status-line">
-    <span id="status_spinner" class="loading" style="display:none;"></span>
-    <span id="status_text">状态：空闲</span>
-  </div>
+    <section class="user-chat-layout">
+      <div class="chat-panel">
+        <div id="chatbox"></div>
+        <div id="status" class="status-line">
+          <span id="status_spinner" class="loading" style="display:none;"></span>
+          <span id="status_text">状态：空闲</span>
+        </div>
 
-  <form id="user_form">
-    <div class="form-group">
-      <label for="toggle_web" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="toggle_web" checked>
-        使用外部检索（Bing/百度，SERP-only）
-      </label>
-    </div>
-    <div class="form-group">
-      <label class="required" for="user_text">和咨询师对话</label>
-      <textarea id="user_text" rows="3" placeholder="输入内容后按发送..."></textarea>
-    </div>
-    <button id="btn_send" type="submit">发送</button>
-  </form>
+        <form id="user_form">
+          <div class="form-group">
+            <label for="toggle_web" style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="toggle_web" checked>
+              使用外部检索（Bing/百度，SERP-only）
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="required" for="user_text">和咨询师对话</label>
+            <textarea id="user_text" rows="3" placeholder="输入内容后按发送..."></textarea>
+          </div>
+          <button id="btn_send" type="submit">发送</button>
+        </form>
+      </div>
+
+      <aside class="avatar-panel">
+        <h3>数字人小益</h3>
+        <div id="live2d_stage">
+          <canvas id="live2d_canvas"></canvas>
+          <div id="avatar_hint">可以点击模型互动</div>
+        </div>
+        <div class="avatar-controls">
+          <button id="btn_motion_wave" type="button">打招呼</button>
+          <button id="btn_motion_tap" type="button">鼓励动作</button>
+          <label for="toggle_tts" style="display:flex;align-items:center;gap:6px;margin:0 0 0 4px;">
+            <input type="checkbox" id="toggle_tts" checked>
+            回复朗读
+          </label>
+        </div>
+        <div class="tts-panel">
+          <div class="tts-row">
+            <label for="tts_voice">音色</label>
+            <select id="tts_voice">
+              <option value="auto">自动选择甜美女声</option>
+            </select>
+          </div>
+          <div class="tts-row">
+            <label for="tts_rate">语速</label>
+            <input id="tts_rate" type="range" min="0.8" max="1.3" value="1.0" step="0.02">
+          </div>
+          <div class="tts-row">
+            <label for="tts_pitch">语调</label>
+            <input id="tts_pitch" type="range" min="0.9" max="1.5" value="1.18" step="0.02">
+          </div>
+          <div class="tts-hint" id="tts_hint">语音：自动甜美女声（推荐）</div>
+        </div>
+        <div id="avatar_status" class="avatar-status">模型状态：加载中...</div>
+      </aside>
+    </section>
+  </main>
 
   <script>
+    const LIVE2D_MODEL_URL = '/live2d/runtime/hiyori_free_t08.model3.json';
+    const live2d = {
+      app: null,
+      model: null,
+      ready: false,
+    };
+    const ttsState = {
+      voices: [],
+    };
+
+    const avatarStatusEl = document.getElementById('avatar_status');
+
+    function setAvatarStatus(text) {
+      if (avatarStatusEl) {
+        avatarStatusEl.textContent = '模型状态：' + text;
+      }
+    }
+
+    function fitLive2DModel() {
+      const container = document.getElementById('live2d_stage');
+      if (!container || !live2d.model) return;
+      const m = live2d.model;
+      const targetW = container.clientWidth;
+      const targetH = container.clientHeight;
+      if (!targetW || !targetH) return;
+
+      // Use local bounds instead of raw width/height so trimmed textures or offsets won't clip the avatar.
+      const bounds = m.getLocalBounds();
+      if (!bounds || !bounds.width || !bounds.height) return;
+
+      const paddingX = targetW * 0.08;
+      const paddingY = targetH * 0.06;
+      const usableW = Math.max(1, targetW - paddingX * 2);
+      const usableH = Math.max(1, targetH - paddingY * 2);
+      const scale = Math.min(usableW / bounds.width, usableH / bounds.height);
+
+      m.scale.set(scale);
+      m.pivot.set(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      m.position.set(targetW * 0.5, targetH * 0.5);
+    }
+
+    function motionGroups() {
+      const defs = live2d.model?.internalModel?.motionManager?.definitions || {};
+      return Object.keys(defs);
+    }
+
+    function playMotion(group, index = 0) {
+      if (!live2d.model) return false;
+      try {
+        live2d.model.motion(group, index, 3);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }
+
+    function playRandomMotion(preferred = []) {
+      const groups = motionGroups();
+      if (!groups.length) return;
+      for (const g of preferred) {
+        if (groups.includes(g) && playMotion(g, 0)) return;
+      }
+      const g = groups[Math.floor(Math.random() * groups.length)];
+      const defs = live2d.model?.internalModel?.motionManager?.definitions || {};
+      const size = (defs[g] || []).length;
+      const idx = size > 1 ? Math.floor(Math.random() * size) : 0;
+      playMotion(g, idx);
+    }
+
+    function maybeSpeak(text) {
+      const toggle = document.getElementById('toggle_tts');
+      if (!toggle || !toggle.checked) return;
+      if (!window.speechSynthesis || !text) return;
+      const plain = String(text).replace(/[#*_`>\-]/g, '').trim();
+      if (!plain) return;
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(plain);
+        const chosen = getChosenVoice();
+        if (chosen) utter.voice = chosen;
+        utter.lang = chosen?.lang || 'zh-CN';
+        utter.rate = Number(document.getElementById('tts_rate')?.value || 1.0);
+        utter.pitch = Number(document.getElementById('tts_pitch')?.value || 1.18);
+        utter.volume = 1;
+        utter.onstart = () => setAvatarStatus('正在朗读回复...');
+        utter.onend = () => setAvatarStatus('在线，等待互动');
+        utter.onerror = () => setAvatarStatus('朗读失败，已切回静音状态');
+        window.speechSynthesis.speak(utter);
+      } catch (err) {
+        setAvatarStatus('当前浏览器不支持朗读');
+      }
+    }
+
+    function voiceScore(v) {
+      const name = (v?.name || '').toLowerCase();
+      const lang = (v?.lang || '').toLowerCase();
+      let score = 0;
+      if (/zh|cmn|chinese/.test(lang)) score += 80;
+      if (/female|girl|woman|xiaoxiao|xiaoyi|xiaorui|xiaohan|晓晓|晓伊|小艺|小晓|少女|女/.test(name)) score += 70;
+      if (/natural|neural|online/.test(name)) score += 30;
+      if (/male|man|boy|yunyang|云扬|男/.test(name)) score -= 40;
+      return score;
+    }
+
+    function bestVoice(voices) {
+      if (!voices || !voices.length) return null;
+      return [...voices].sort((a, b) => voiceScore(b) - voiceScore(a))[0] || null;
+    }
+
+    function getChosenVoice() {
+      const voices = ttsState.voices || [];
+      if (!voices.length) return null;
+      const sel = document.getElementById('tts_voice');
+      const selected = sel?.value || 'auto';
+      if (selected === 'auto') {
+        return bestVoice(voices);
+      }
+      return voices.find(v => v.name === selected) || bestVoice(voices);
+    }
+
+    function updateTtsHint() {
+      const hint = document.getElementById('tts_hint');
+      if (!hint) return;
+      const v = getChosenVoice();
+      const rate = Number(document.getElementById('tts_rate')?.value || 1.0).toFixed(2);
+      const pitch = Number(document.getElementById('tts_pitch')?.value || 1.18).toFixed(2);
+      if (!v) {
+        hint.textContent = '语音：未发现可用语音，请在系统里安装中文语音包';
+        return;
+      }
+      hint.textContent = `语音：${v.name}（${v.lang}） 语速 ${rate} 语调 ${pitch}`;
+    }
+
+    function refreshVoices() {
+      if (!window.speechSynthesis) return;
+      const voices = window.speechSynthesis.getVoices() || [];
+      ttsState.voices = voices;
+      const sel = document.getElementById('tts_voice');
+      if (!sel) return;
+      const prev = sel.value || 'auto';
+      sel.innerHTML = '';
+      const autoOpt = document.createElement('option');
+      autoOpt.value = 'auto';
+      autoOpt.textContent = '自动选择甜美女声';
+      sel.appendChild(autoOpt);
+
+      const zhVoices = voices.filter(v => /zh|cmn|chinese/i.test((v.lang || '') + ' ' + (v.name || '')));
+      const sorted = [...zhVoices].sort((a, b) => voiceScore(b) - voiceScore(a));
+      sorted.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.name;
+        opt.textContent = `${v.name} (${v.lang})`;
+        sel.appendChild(opt);
+      });
+
+      const hasPrev = [...sel.options].some(o => o.value === prev);
+      sel.value = hasPrev ? prev : 'auto';
+      updateTtsHint();
+    }
+
+    function loadScriptWithFallback(urls, timeoutMs = 8000) {
+      return new Promise((resolve, reject) => {
+        let index = 0;
+        const tryNext = () => {
+          if (index >= urls.length) {
+            reject(new Error('all script urls failed'));
+            return;
+          }
+          const src = urls[index++];
+          const s = document.createElement('script');
+          s.src = src;
+          s.async = true;
+          s.crossOrigin = 'anonymous';
+          const timer = window.setTimeout(() => {
+            s.remove();
+            tryNext();
+          }, timeoutMs);
+          s.onload = () => {
+            window.clearTimeout(timer);
+            resolve(src);
+          };
+          s.onerror = () => {
+            window.clearTimeout(timer);
+            s.remove();
+            tryNext();
+          };
+          document.head.appendChild(s);
+        };
+        tryNext();
+      });
+    }
+
+    async function ensureLive2DDeps() {
+      if (!window.PIXI) {
+        await loadScriptWithFallback([
+          '/static/vendor/live2d/pixi.min.js',
+          'https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js',
+          'https://fastly.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js',
+          'https://unpkg.com/pixi.js@6.5.10/dist/browser/pixi.min.js',
+        ]);
+      }
+
+      if (!window.PIXI) {
+        throw new Error('PIXI not available');
+      }
+
+      // Cubism Core distribution is often restricted on public CDNs, so load it when available.
+      if (!window.Live2DCubismCore) {
+        try {
+          await loadScriptWithFallback([
+            '/static/vendor/live2d/live2dcubismcore.min.js',
+          ]);
+        } catch (err) {
+          console.warn('Live2DCubismCore not loaded yet, will continue and rely on bundled runtime if possible.');
+        }
+      }
+
+      if (!window.PIXI.live2d) {
+        await loadScriptWithFallback([
+          '/static/vendor/live2d/cubism4.min.js',
+          'https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js',
+          'https://fastly.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js',
+          'https://unpkg.com/pixi-live2d-display@0.4.0/dist/cubism4.min.js',
+        ]);
+      }
+
+      if (!window.PIXI.live2d) {
+        throw new Error('PIXI live2d plugin not available');
+      }
+    }
+
+    function getModelAssetUrls(modelUrl, modelJson) {
+      const refs = modelJson?.FileReferences || {};
+      const root = new URL(modelUrl, window.location.origin);
+      const items = [];
+
+      const pushIfString = (v) => {
+        if (typeof v === 'string' && v.trim()) {
+          items.push(new URL(v, root).toString());
+        }
+      };
+
+      pushIfString(refs.Moc);
+      pushIfString(refs.Physics);
+      pushIfString(refs.DisplayInfo);
+
+      if (Array.isArray(refs.Textures)) {
+        refs.Textures.forEach(pushIfString);
+      }
+
+      const motions = refs.Motions || {};
+      Object.keys(motions).forEach((group) => {
+        const arr = motions[group];
+        if (!Array.isArray(arr)) return;
+        arr.forEach((m) => pushIfString(m?.File));
+      });
+
+      return [...new Set(items)];
+    }
+
+    async function verifyLive2DAssets(modelUrl) {
+      const modelRes = await fetch(modelUrl, { cache: 'no-store' });
+      if (!modelRes.ok) {
+        throw new Error('model json not found: ' + modelRes.status);
+      }
+      const modelJson = await modelRes.json();
+      const urls = getModelAssetUrls(modelUrl, modelJson);
+      const checks = await Promise.all(urls.map(async (u) => {
+        try {
+          const r = await fetch(u, { cache: 'no-store' });
+          return { url: u, ok: !!r.ok, status: r.status };
+        } catch (e) {
+          return { url: u, ok: false, status: 0 };
+        }
+      }));
+      return checks.filter(c => !c.ok);
+    }
+
+    async function initLive2D() {
+      try {
+        setAvatarStatus('正在加载 Live2D 依赖...');
+        await ensureLive2DDeps();
+      } catch (err) {
+        console.error('Live2D 依赖加载失败', err);
+        setAvatarStatus('Live2D 依赖加载失败，请检查网络或稍后重试');
+        return;
+      }
+      const stage = document.getElementById('live2d_stage');
+      const canvas = document.getElementById('live2d_canvas');
+      if (!stage || !canvas) return;
+      try {
+        setAvatarStatus('正在校验模型资源...');
+        const missing = await verifyLive2DAssets(LIVE2D_MODEL_URL);
+        if (missing.length) {
+          const short = missing.slice(0, 2).map(m => m.url.split('/').pop()).join(', ');
+          setAvatarStatus('模型资源缺失：' + short);
+          console.error('Live2D resources missing', missing);
+          return;
+        }
+
+        live2d.app = new PIXI.Application({
+          view: canvas,
+          resizeTo: stage,
+          autoStart: true,
+          transparent: true,
+          antialias: true,
+        });
+        live2d.model = await PIXI.live2d.Live2DModel.from(LIVE2D_MODEL_URL);
+        live2d.model.interactive = true;
+        live2d.model.buttonMode = true;
+        live2d.model.on('hit', (areas) => {
+          if (Array.isArray(areas) && areas.includes('Body')) {
+            playMotion('Tap@Body', 0) || playMotion('Tap', 0) || playRandomMotion(['Flick@Body', 'Flick']);
+          } else {
+            playRandomMotion(['Tap', 'Flick', 'Idle']);
+          }
+        });
+        live2d.app.stage.addChild(live2d.model);
+        fitLive2DModel();
+        // Re-fit a few times because bounds may stabilize after first render tick.
+        window.setTimeout(fitLive2DModel, 80);
+        window.setTimeout(fitLive2DModel, 260);
+        window.addEventListener('resize', fitLive2DModel);
+        live2d.ready = true;
+        setAvatarStatus('在线，等待互动');
+      } catch (err) {
+        console.error('Live2D 初始化失败', err);
+        const msg = String(err?.message || err || '');
+        if (msg.includes('model json not found')) {
+          setAvatarStatus('模型入口文件不存在，请检查 /live2d/runtime 路径');
+        } else if (!window.Live2DCubismCore) {
+          setAvatarStatus('缺少 Cubism Core：请放置 /static/vendor/live2d/live2dcubismcore.min.js');
+        } else {
+          setAvatarStatus('模型加载失败，请检查路径与模型文件完整性');
+        }
+      }
+    }
+
+    document.getElementById('btn_motion_wave').addEventListener('click', () => {
+      playMotion('Flick', 0) || playMotion('Idle', 0) || playRandomMotion();
+      setAvatarStatus('已执行打招呼动作');
+    });
+
+    document.getElementById('btn_motion_tap').addEventListener('click', () => {
+      playMotion('Tap', 0) || playMotion('Tap@Body', 0) || playRandomMotion();
+      setAvatarStatus('已执行鼓励动作');
+    });
+
+    document.getElementById('tts_voice').addEventListener('change', updateTtsHint);
+    document.getElementById('tts_rate').addEventListener('input', updateTtsHint);
+    document.getElementById('tts_pitch').addEventListener('input', updateTtsHint);
+    if (window.speechSynthesis) {
+      refreshVoices();
+      window.speechSynthesis.onvoiceschanged = refreshVoices;
+    }
+
+    initLive2D();
+
     let conversationId = null;
     const guestMode = {{ 'true' if guest_mode else 'false' }};
     const guestIntro = {{ intro | tojson }};
@@ -150,6 +693,8 @@
         form.append('enable_web_retrieval', webToggle.checked ? 'true' : 'false');
       }
 
+      playMotion('FlickDown', 0) || playRandomMotion(['Idle']);
+      setAvatarStatus('认真倾听中...');
       setStatus('正在建立连接...', true);
       try {
         const res = await fetch('/api/chat/stream', { method: 'POST', body: form });
@@ -157,6 +702,7 @@
           const txt = await res.text();
           appendMessage('bot', '错误：' + txt);
           setStatus('错误', false);
+          setAvatarStatus('连接失败，请稍后重试');
           return;
         }
         setStatus('开始接收模型进度...', true);
@@ -184,17 +730,23 @@
                 const j = JSON.parse(data || '{}');
                 if (ev === 'progress') {
                   setStatus(j.message || data || '处理中...', true);
+                  setAvatarStatus((j.message || '思考中...').slice(0, 26));
                 } else if (ev === 'result') {
                   const r = j;
                   if (r.error) {
                     appendMessage('bot', '错误：' + r.error);
+                    setAvatarStatus('出现异常，请稍后再试');
                   } else {
                     appendMessage('bot', r.reply || r.answer || '(无回复)');
+                    playMotion('Tap', 0) || playMotion('Tap@Body', 0) || playRandomMotion(['Flick', 'Idle']);
+                    setAvatarStatus('已回复，等待你的下一句');
+                    maybeSpeak(r.reply || r.answer || '');
                   }
                   setStatus('已收到回复', false);
                 } else if (ev === 'error') {
                   appendMessage('bot', '错误：' + (j.error || data));
                   setStatus('错误', false);
+                  setAvatarStatus('出现错误，建议稍后重试');
                 } else if (ev === 'done') {
                   setStatus('完成', false);
                 }
@@ -213,6 +765,7 @@
         console.error('流式请求失败', err);
         appendMessage('bot', '错误：' + (err.message || err));
         setStatus('失败', false);
+        setAvatarStatus('网络中断，请重试');
       }
     });
   </script>

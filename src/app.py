@@ -51,6 +51,9 @@ app.add_middleware(AdminAuthMiddleware)
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+LIVE2D_DIR = BASE_DIR / "hiyori_free_zh"
+if LIVE2D_DIR.exists():
+	app.mount("/live2d", StaticFiles(directory=str(LIVE2D_DIR)), name="live2d")
 
 
 def get_db():
