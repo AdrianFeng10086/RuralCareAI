@@ -34,8 +34,8 @@ class SFBTDialogueManager:
         self.max_predict_tokens = to_int(env("API_MAX_TOKENS", "768"), 512)
 
         # API 配置
-        self.api_url = (env("DEEPSEEK-API-URL")).strip()
-        self.api_key = (env("DEEPSEEK-API")).strip()
+        self.api_url = (env("DEEPSEEK_API_URL")).strip()
+        self.api_key = (env("DEEPSEEK_API")).strip()
         self.api_timeout = to_int(env("API_TIMEOUT", "30"), 30)
 
         # 日志（写在 run.py 同级目录）

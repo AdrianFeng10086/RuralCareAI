@@ -47,8 +47,8 @@ python run.py
 
 ## 环境变量
 可在 envs/.env 中配置（示例）：
-- DEEPSEEK-API-URL：模型 API 地址
-- DEEPSEEK-API：API Key
+- DEEPSEEK_API_URL：模型 API 地址
+- DEEPSEEK_API：API Key
 - API_MODEL：模型名称
 - TEMPERATURE：生成温度
 - API_NUM_CTX：上下文长度
