@@ -1,76 +1,76 @@
-# 益心守护（SFBT + 生成式 AI）
+# YiXin Guardian (SFBT + Generative AI)
 
-面向乡村困境儿童的心理支持平台，包含管理后台与用户端聊天。支持知识库上传与检索、危机提示、游客模式（不保存记录）。
+A psychological support platform for rural children in difficult circumstances, including admin backend and user chat interface. Supports knowledge base upload and retrieval, crisis alerts, and guest mode (no record saving).
 
-## 功能概览
-- 用户端聊天：SFBT 对话流程、流式回复。
-- 数字人交互：用户端聊天页集成 Live2D 数字人（动作触发、点击互动、可选语音朗读）。
-- 管理后台：儿童档案、知识库管理、心理预警。
-- 知识库：上传 PDF 文档并构建向量索引。
-- 游客模式：无需账号进入对话，不保存任何对话与记录。
+## Feature Overview
+- User chat: SFBT dialogue flow with streaming responses
+- Digital avatar interaction: User chat page integrates Live2D digital avatar (action triggers, click interactions, optional voice reading)
+- Admin backend: Children's profiles, knowledge base management, psychological early warning
+- Knowledge base: Upload PDF documents and build vector index
+- Guest mode: Enter dialogue without account, no saving of conversations or records
 
-## 目录结构
-- src/ 后端主逻辑
-- templates/ 前端页面模板
-- static/ 样式与静态资源
-- uploads/knowledge/ 知识库上传文件目录
+## Directory Structure
+- src/ Backend main logic
+- templates/ Frontend page templates
+- static/ Styles and static resources
+- uploads/knowledge/ Knowledge base upload file directory
 
-## 环境与依赖
-建议使用 Python 3.9+。
+## Environment & Dependencies
+Python 3.9+ recommended.
 
-安装依赖：
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## 启动方式
-项目已提供启动脚本：
+## Launch Method
+Project provides startup script:
 
 ```bash
 python run.py
 ```
 
-默认启动地址：
-- 用户端：http://127.0.0.1:8000/
-- 管理端：http://127.0.0.1:8000/admin
+Default launch addresses:
+- User interface: http://127.0.0.1:8000/
+- Admin interface: http://127.0.0.1:8000/admin
 
-## 数字人（Live2D）说明
-- Live2D 模型目录：`hiyori_free_zh/`
-- 模型入口文件：`hiyori_free_zh/runtime/hiyori_free_t08.model3.json`
-- 前端页面：`/user/chat`
+## Digital Avatar (Live2D) Description
+- Live2D model directory: `hiyori_free_zh/`
+- Model entry file: `hiyori_free_zh/runtime/hiyori_free_t08.model3.json`
+- Frontend page: `/user/chat`
 
-说明：
-- 后端会自动挂载 `/live2d` 静态路径，前端通过 `/live2d/runtime/hiyori_free_t08.model3.json` 加载模型。
-- 页面默认启用数字人动作与点击互动；可用“回复朗读”开关控制浏览器语音播报。
-- 若模型不显示，先检查模型目录是否存在，再确认网络可访问前端依赖 CDN。
+Instructions:
+- Backend automatically mounts `/live2d` static path, frontend loads model via `/live2d/runtime/hiyori_free_t08.model3.json`
+- Page enables digital avatar actions and click interactions by default; "Reply Reading" switch controls browser voice playback
+- If model doesn't display, first check if model directory exists, then confirm network can access frontend dependency CDN
 
-## 环境变量
-可在 envs/.env 中配置（示例）：
-- DEEPSEEK_API_URL：模型 API 地址
-- DEEPSEEK_API：API Key
-- API_MODEL：模型名称
-- TEMPERATURE：生成温度
-- API_NUM_CTX：上下文长度
-- API_MAX_TOKENS：最大输出
+## Environment Variables
+Can be configured in envs/.env (example):
+- DEEPSEEK_API_URL: Model API address
+- DEEPSEEK_API: API Key
+- API_MODEL: Model name
+- TEMPERATURE: Generation temperature
+- API_NUM_CTX: Context length
+- API_MAX_TOKENS: Maximum output
 
-## 游客模式
-登录页提供“游客登陆”入口：
-- 进入后可正常对话
-- 不保存对话、不创建儿童记录
+## Guest Mode
+Login page provides "Guest Login" entry:
+- Can chat normally after entering
+- Does not save conversations or create children records
 
-## 知识库上传与同步
-- 上传入口：管理端 -> 上传知识
-- 上传后会自动写入数据库并重建向量库
-- uploads/knowledge 下新增/移除文件会自动同步（页面轮询或启动时）
+## Knowledge Base Upload & Sync
+- Upload entry: Admin interface -> Upload Knowledge
+- After upload, automatically writes to database and rebuilds vector library
+- Files added/removed in uploads/knowledge automatically sync (page polling or at startup)
 
-## 账号与权限
-- 管理端账号密码可在 src/auth.py 中配置或通过环境变量覆盖
-- 用户端账号由管理员在后台创建
+## Account & Permissions
+- Admin account password can be configured in src/auth.py or overridden via environment variables
+- User accounts created by administrators in backend
 
-## 常见问题
-- 上传后未生效：检查 uploads/knowledge 目录与向量库构建日志
-- 无法访问管理端：确认管理员账号密码是否正确配置
+## Common Issues
+- Upload not taking effect: Check uploads/knowledge directory and vector library build logs
+- Cannot access admin interface: Confirm admin account password is correctly configured
 
-## 许可证
-本项目未附带许可证文件，如需开源发布请补充 LICENSE。
+## License
+This project does not include a license file. If open-source release is needed, please add LICENSE.
